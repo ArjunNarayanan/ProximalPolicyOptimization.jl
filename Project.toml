@@ -3,6 +3,10 @@ uuid = "8e250718-78ce-4eef-8efa-960b62b39feb"
 authors = ["Arjun <arjun.narayanan91@gmail.com> and contributors"]
 version = "0.1.0"
 
+[deps]
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+
 [compat]
 julia = "1.7"
 

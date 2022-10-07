@@ -1,5 +1,8 @@
 module ProximalPolicyOptimization
 
+using Distributions: Categorical
+using Flux
+
 function not_implemented(name)
     error("Function $name needs to be overloaded")
 end
@@ -18,5 +21,9 @@ function episode_state(state_data) not_implemented("episode_state") end
 function episode_returns(rewards, state_data, discount) not_implemented("episode_returns") end
 function batch_state(state_data) not_implemented("batch_state") end
 function batch_advantage(episodes) not_implemented("batch_advantage") end
+
+
+include("rollouts.jl")
+
 
 end

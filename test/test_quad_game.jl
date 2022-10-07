@@ -21,3 +21,10 @@ mesh0 = QM.square_mesh(2)
 d0 = deepcopy(mesh0.degree)
 QM.left_flip!(mesh0, 1, 3)
 wrapper = GameEnvWrapper(mesh0, d0, 4)
+
+
+vs, am = PPO.state(wrapper)
+
+# episodes = PPO.EpisodeData(PPO.initialize_state_data(wrapper))
+# policy = SimplePolicy.Policy(36, 64, 5)
+# PPO.collect_episode_data!(episodes, wrapper, policy)
