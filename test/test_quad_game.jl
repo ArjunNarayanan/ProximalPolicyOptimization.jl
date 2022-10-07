@@ -17,12 +17,15 @@ test_a = repeat(1:5, outer=24)
 @test allequal(test_a, a)
 
 
+discount = 0.9
 mesh0 = QM.square_mesh(2)
 d0 = deepcopy(mesh0.degree)
 QM.left_flip!(mesh0, 1, 3)
 wrapper = GameEnvWrapper(mesh0, d0, 4)
-
-episodes = PPO.EpisodeData(PPO.initialize_state_data(wrapper))
 policy = SimplePolicy.Policy(36, 64, 5)
 
-PPO.collect_episode_data!(episodes, wrapper, policy)
+
+rollouts = PPO.EpisodeData()
+PPO.collect_rollouts!(rollouts, wrapper, policy, 10)
+
+PPO.compute_state_value!(rollouts, discount)

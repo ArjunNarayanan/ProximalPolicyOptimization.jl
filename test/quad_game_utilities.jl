@@ -28,35 +28,14 @@ function Base.show(io::IO, wrapper::GameEnvWrapper)
 end
 
 struct StateData
-    state::Any
+    vertex_score::Any
     action_mask
 end
 
-function StateData()
-    state = Matrix{Int}[]
-    action_mask = Vector{Float32}[]
-    StateData(state, action_mask)
-end
-
-function Base.length(s::StateData)
-    return length(s.state)
-end
-
 function Base.show(io::IO, s::StateData)
-    l = length(s)
     println(io, "StateData")
-    println(io, "\t$l data points")
 end
 
-function PPO.update!(state_data::StateData, state)
-    vs, am = state
-    push!(state_data.state, vs)
-    push!(state_data.action_mask, am)
-end
-
-function PPO.initialize_state_data(wrapper)
-    return StateData()
-end
 
 function val_or_missing(vector, template, missing_val)
     return [t == 0 ? missing_val : vector[t] for t in template]
@@ -73,12 +52,13 @@ function PPO.state(wrapper)
 
     vs = val_or_missing(env.vertex_score, env.template, 0)
     am = action_mask(env.mesh.active_quad)
+    s = StateData(vs, am)
 
-    return vs, am
+    return s
 end
 
 function PPO.action_probabilities(policy, state)
-    vertex_score, action_mask = state
+    vertex_score, action_mask = state.vertex_score, state.action_mask
 
     logits = vec(policy(vertex_score)) + action_mask
     p = softmax(logits)
