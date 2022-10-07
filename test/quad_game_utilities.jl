@@ -36,6 +36,14 @@ function Base.show(io::IO, s::StateData)
     println(io, "StateData")
 end
 
+function batch_state(state_data_vector)
+    vs = [s.vertex_score for s in state_data_vector]
+    am = [s.action_mask for s in state_data_vector]
+
+    batch_vertex_score = cat(vs..., dims=3)
+    batch_action_mask = cat(am..., dims=2)
+    return StateData(batch_vertex_score, batch_action_mask)
+end
 
 function val_or_missing(vector, template, missing_val)
     return [t == 0 ? missing_val : vector[t] for t in template]

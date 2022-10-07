@@ -29,3 +29,5 @@ rollouts = PPO.EpisodeData()
 PPO.collect_rollouts!(rollouts, wrapper, policy, 10)
 
 PPO.compute_state_value!(rollouts, discount)
+
+bs = batch_state(rollouts.state_data[1:4])
