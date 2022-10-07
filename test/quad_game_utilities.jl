@@ -1,3 +1,4 @@
+using Flux
 using PlotQuadMesh
 using QuadMeshGame
 using ProximalPolicyOptimization
@@ -33,7 +34,7 @@ end
 
 function StateData()
     state = Matrix{Int}[]
-    action_mask = Matrix{Float32}[]
+    action_mask = Vector{Float32}[]
     StateData(state, action_mask)
 end
 
@@ -63,7 +64,7 @@ end
 
 function action_mask(active_quad)
     requires_mask = repeat(.!active_quad', inner=(20,1))
-    mask = vec([r ? -Inf : 0.0 for r in requires_mask])
+    mask = vec([r ? -Inf32 : 0.0f0 for r in requires_mask])
     return mask
 end
 
@@ -100,12 +101,6 @@ function PPO.reset!(wrapper)
     wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
 end
 
-function PPO.action_probabilities(policy, state)
-    logits = vec(policy(state))
-    p = softmax(logits)
-    return p
-end
-
 function index_to_action(index)
     quad = div(index-1, 20) + 1
 
@@ -125,8 +120,8 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward = -4)
     env = wrapper.env
 
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action $action_index"
-    @assert type in (1,2,3,4,5)
-    @assert edge in (1,2,3,4)
+    @assert type in (1,2,3,4,5) "Expected action type in {1,2,3,4,5} got type = $type"
+    @assert edge in (1,2,3,4) "Expected edge in {1,2,3,4} got edge = $edge"
 
     if type == 1
         QM.step_left_flip!(env, quad, edge, no_action_reward=no_action_reward)
