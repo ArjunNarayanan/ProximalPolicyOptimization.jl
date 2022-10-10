@@ -3,6 +3,7 @@ module ProximalPolicyOptimization
 using Distributions: Categorical
 using Flux
 using Random
+using Printf
 
 function not_implemented(name)
     error("Function $name needs to be overloaded")
@@ -23,6 +24,6 @@ function batch_advantage(episodes) not_implemented("batch_advantage") end
 
 
 include("rollouts.jl")
-
+include("train.jl")
 
 end

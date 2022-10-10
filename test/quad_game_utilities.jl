@@ -36,7 +36,7 @@ function Base.show(io::IO, s::StateData)
     println(io, "StateData")
 end
 
-function batch_state(state_data_vector)
+function PPO.batch_state(state_data_vector)
     vs = [s.vertex_score for s in state_data_vector]
     am = [s.action_mask for s in state_data_vector]
 
@@ -71,6 +71,14 @@ function PPO.action_probabilities(policy, state)
     logits = vec(policy(vertex_score)) + action_mask
     p = softmax(logits)
     return p
+end
+
+function PPO.batch_action_probabilities(policy, state)
+    vertex_score, action_mask = state.vertex_score, state.action_mask
+    nf, nq, nb = size(vertex_score)
+    logits = reshape(policy(vertex_score), :, nb) + action_mask
+    probs = softmax(logits, dims=1)
+    return probs
 end
 
 function PPO.reward(wrapper)
