@@ -13,13 +13,24 @@ include("policy.jl")
 mutable struct GameEnvWrapper
     mesh0::Any
     desired_degree
+    action_list
     max_actions::Any
     env::Any
-    function GameEnvWrapper(mesh0, desired_degree, max_actions)
+    function GameEnvWrapper(mesh0, action_list, max_actions)
         mesh = deepcopy(mesh0)
-        d0 = deepcopy(desired_degree)
+        d0 = deepcopy(mesh0.degree)
+        random_flip!(mesh, action_list)
         env = QM.GameEnv(mesh, d0, max_actions)
-        new(mesh0, d0, max_actions, env)
+        new(mesh0, d0, action_list, max_actions, env)
+    end
+end
+
+function random_flip!(mesh, action_list)
+    quad, edge = rand(action_list)
+    if rand() < 0.5
+        QM.left_flip!(mesh, quad, edge)
+    else
+        QM.right_flip!(mesh, quad, edge)
     end
 end
 
@@ -95,6 +106,7 @@ end
 function PPO.reset!(wrapper)
     mesh = deepcopy(wrapper.mesh0)
     d0 = deepcopy(wrapper.desired_degree)
+    random_flip!(mesh, wrapper.action_list)
     wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
 end
 
