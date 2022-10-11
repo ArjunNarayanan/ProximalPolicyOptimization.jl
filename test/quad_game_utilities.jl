@@ -2,6 +2,7 @@ using Flux
 using PlotQuadMesh
 using QuadMeshGame
 using ProximalPolicyOptimization
+using Distributions: Categorical
 
 QM = QuadMeshGame
 PPO = ProximalPolicyOptimization
@@ -160,4 +161,46 @@ end
 
 function smooth_mesh!(wrapper)
     QM.averagesmoothing!(wrapper.env.mesh)
+end
+
+function single_trajectory_return(wrapper, policy)
+    env = wrapper.env
+
+    done = PPO.is_terminal(wrapper)
+    if done
+        return 0.0
+    else
+        initial_score = env.current_score
+        minscore = initial_score
+        while !done
+            probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+            action = rand(Categorical(probs))
+
+            PPO.step!(wrapper, action)
+
+            minscore = min(minscore, env.current_score)
+            done = PPO.is_terminal(wrapper)
+        end
+        return initial_score - minscore
+    end
+end
+
+function single_trajectory_normalized_return(wrapper, policy)
+    env = wrapper.env
+    maxreturn = env.current_score - env.opt_score
+    if maxreturn == 0
+        return 1.0
+    else
+        ret = single_trajectory_return(wrapper, policy)
+        return ret / maxreturn
+    end
+end
+
+function average_normalized_returns(wrapper, policy, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = single_trajectory_normalized_return(wrapper, policy)
+    end
+    return Flux.mean(ret), Flux.std(ret)
 end

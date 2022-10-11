@@ -61,3 +61,30 @@ function ppo_train!(
         @printf "EPOCH : %d \t AVG LOSS : %1.4f\n" epoch l
     end
 end
+
+function ppo_iterate!(
+    policy,
+    env,
+    optimizer,
+    episodes_per_iteration,
+    discount,
+    epsilon,
+    batch_size,
+    num_epochs,
+    num_iter,
+    evaluator
+)
+    for iter in 1:num_iter
+        println("\nPPO ITERATION : $iter")
+
+        rollouts = EpisodeData()
+        collect_rollouts!(rollouts, env, policy, episodes_per_iteration)
+        compute_state_value!(rollouts, discount)
+
+        ppo_train!(policy, optimizer, rollouts, epsilon, batch_size, num_epochs)
+
+        ret, dev = evaluator(policy, env)
+
+        @printf "RET = %1.4f\tDEV = %1.4f\n" ret dev
+    end
+end

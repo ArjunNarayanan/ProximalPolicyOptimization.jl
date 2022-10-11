@@ -17,21 +17,3 @@ test_a = repeat(1:5, outer=24)
 @test allequal(test_a, a)
 
 
-discount = 0.9
-epsilon = 0.05
-batch_size = 5
-
-mesh0 = QM.square_mesh(2)
-d0 = deepcopy(mesh0.degree)
-QM.left_flip!(mesh0, 1, 3)
-wrapper = GameEnvWrapper(mesh0, d0, 4)
-
-policy = SimplePolicy.Policy(36, 64, 5)
-optimizer = ADAM(1e-4)
-
-rollouts = PPO.EpisodeData()
-num_rollouts = 20
-PPO.collect_rollouts!(rollouts, wrapper, policy, num_rollouts)
-PPO.compute_state_value!(rollouts, discount)
-
-PPO.ppo_train!(policy, optimizer, rollouts, epsilon, 10, 10)
