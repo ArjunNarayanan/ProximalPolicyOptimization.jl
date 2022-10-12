@@ -1,44 +1,27 @@
 using Flux
 using PlotQuadMesh
-using RandomQuadMesh
 using QuadMeshGame
 using ProximalPolicyOptimization
 using Distributions: Categorical
 
-RQ = RandomQuadMesh
 QM = QuadMeshGame
 PPO = ProximalPolicyOptimization
 PQ = PlotQuadMesh
 
 include("policy.jl")
 
-function initialize_random_mesh(poly_degree)
-    boundary_pts = RQ.random_polygon(poly_degree)
-    angles = QM.polygon_interior_angles(boundary_pts)
-    bdry_d0 = QM.desired_degree.(angles)
-
-    mesh = RQ.quad_mesh(boundary_pts)
-    mesh = QM.QuadMesh(mesh.p, mesh.t, mesh.t2t, mesh.t2n)
-
-    mask = .![trues(npts); falses(mesh.num_vertices - poly_degree)]
-    mask = mask .& mesh.vertex_on_boundary[mesh.active_vertex]
-
-    d0 = [bdry_d0; fill(4, mesh.num_vertices - poly_degree)]
-    d0[mask] .= 3
-
-    return mesh, d0
-end
-
 mutable struct GameEnvWrapper
-    mesh0
-    d0
-    poly_degree
+    mesh0::Any
+    desired_degree
+    action_list
     max_actions::Any
     env::Any
-    function GameEnvWrapper(poly_degree, max_actions)
-        mesh, d0 = initialize_random_mesh(poly_degree)
+    function GameEnvWrapper(mesh0, action_list, max_actions)
+        mesh = deepcopy(mesh0)
+        d0 = deepcopy(mesh0.degree)
+        random_flip_or_split!(mesh, action_list)
         env = QM.GameEnv(mesh, d0, max_actions)
-        new(deepcopy(mesh), deepcopy(d0), poly_degree, max_actions, env)
+        new(mesh0, d0, action_list, max_actions, env)
     end
 end
 
@@ -185,10 +168,10 @@ function PPO.step!(wrapper, action_index; no_action_reward=-4)
     PPO.step!(wrapper, quad, edge, type, no_action_reward)
 end
 
-function plot_env(env; elem_numbers = false, internal_order=false)
-    env = deepcopy(env)
-
+function plot_env(wrapper; elem_numbers = false, internal_order=false)
+    env = wrapper.env
     QM.reindex_game_env!(env)
+    
     mesh = env.mesh
     vs = QM.active_vertex_score(env)
     fig, ax = PQ.plot_mesh(
@@ -199,10 +182,6 @@ function plot_env(env; elem_numbers = false, internal_order=false)
         internal_order=internal_order
     )
     return fig
-end
-
-function plot_env(wrapper::GameEnvWrapper; elem_numbers = false, internal_order = false)
-    plot_env(wrapper.env, elem_numbers=elem_numbers, internal_order=internal_order)
 end
 
 function smooth_mesh!(wrapper)

@@ -1,4 +1,4 @@
-include("quad_game_utilities.jl")
+include("test_quad_game_utilities.jl")
 
 function evaluator(policy, wrapper; num_trajectories = 100)
     ret, dev = average_normalized_returns(wrapper, policy, num_trajectories)
