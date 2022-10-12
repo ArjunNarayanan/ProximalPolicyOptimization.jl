@@ -19,7 +19,7 @@ mutable struct GameEnvWrapper
     function GameEnvWrapper(mesh0, action_list, max_actions)
         mesh = deepcopy(mesh0)
         d0 = deepcopy(mesh0.degree)
-        random_flip!(mesh, action_list)
+        random_flip_or_split!(mesh, action_list)
         env = QM.GameEnv(mesh, d0, max_actions)
         new(mesh0, d0, action_list, max_actions, env)
     end
@@ -31,6 +31,18 @@ function random_flip!(mesh, action_list)
         QM.left_flip!(mesh, quad, edge)
     else
         QM.right_flip!(mesh, quad, edge)
+    end
+end
+
+function random_flip_or_split!(mesh, action_list)
+    quad, edge = rand(action_list)
+    type = rand(1:3)
+    if type == 1
+        QM.left_flip!(mesh, quad, edge)
+    elseif type == 2
+        QM.right_flip!(mesh, quad, edge)
+    elseif type == 3
+        QM.split!(mesh, quad, edge)
     end
 end
 
@@ -69,9 +81,10 @@ end
 
 function PPO.state(wrapper)
     env = wrapper.env
-
+    
     vs = val_or_missing(env.vertex_score, env.template, 0)
     am = action_mask(env.mesh.active_quad)
+    
     s = StateData(vs, am)
 
     return s
@@ -106,7 +119,7 @@ end
 function PPO.reset!(wrapper)
     mesh = deepcopy(wrapper.mesh0)
     d0 = deepcopy(wrapper.desired_degree)
-    random_flip!(mesh, wrapper.action_list)
+    random_flip_or_split!(mesh, wrapper.action_list)
     wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
 end
 
@@ -128,7 +141,7 @@ end
 function PPO.step!(wrapper, quad, edge, type, no_action_reward = -4)
     env = wrapper.env
 
-    @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action $action_index"
+    @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
     @assert type in (1,2,3,4,5) "Expected action type in {1,2,3,4,5} got type = $type"
     @assert edge in (1,2,3,4) "Expected edge in {1,2,3,4} got edge = $edge"
 

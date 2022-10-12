@@ -45,6 +45,7 @@ function collect_step_data!(episode_data, env, policy)
     a = rand(Categorical(ap))
 
     step!(env, a)
+
     r = reward(env)
     t = is_terminal(env)
 

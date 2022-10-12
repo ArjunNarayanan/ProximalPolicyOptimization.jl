@@ -14,13 +14,18 @@ num_iter = 100
 
 mesh0 = QM.square_mesh(2)
 action_list = [(1,2), (1,3), (2,1), (2,2), (3,3), (3,4), (4,1), (4,4)]
-wrapper = GameEnvWrapper(mesh0, action_list, 1)
+wrapper = GameEnvWrapper(mesh0, action_list, 5)
+
 
 policy = SimplePolicy.Policy(36, 64, 5)
 optimizer = ADAM(1e-3)
 
+
 PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, discount, epsilon, 
 batch_size, num_epochs, num_iter, evaluator)
+
+wrapper = GameEnvWrapper(mesh0, action_list, 1)
+ret, dev = evaluator(policy, wrapper)
 
 # mesh0 = QM.square_mesh(2)
 # d0 = deepcopy(mesh0.degree)
