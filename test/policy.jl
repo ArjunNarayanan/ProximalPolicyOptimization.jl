@@ -6,13 +6,13 @@ struct Policy
     model
     hidden_channels
     num_hidden_layers
-    function Policy(in_channels, hidden_channels, num_hidden_layers)
+    function Policy(in_channels, hidden_channels, num_hidden_layers, num_output)
         model = []
         push!(model, Dense(in_channels, hidden_channels, leakyrelu))
         for i in 1:num_hidden_layers-1
             push!(model, Dense(hidden_channels, hidden_channels, leakyrelu))
         end
-        push!(model, Dense(hidden_channels, 5))
+        push!(model, Dense(hidden_channels, num_output))
         model = Chain(model...)
 
         new(model, hidden_channels, num_hidden_layers)

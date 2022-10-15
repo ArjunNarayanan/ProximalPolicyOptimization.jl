@@ -20,7 +20,7 @@ function initialize_random_mesh(poly_degree)
     mesh = RQ.quad_mesh(boundary_pts)
     mesh = QM.QuadMesh(mesh.p, mesh.t, mesh.t2t, mesh.t2n)
 
-    mask = .![trues(npts); falses(mesh.num_vertices - poly_degree)]
+    mask = .![trues(poly_degree); falses(mesh.num_vertices - poly_degree)]
     mask = mask .& mesh.vertex_on_boundary[mesh.active_vertex]
 
     d0 = [bdry_d0; fill(4, mesh.num_vertices - poly_degree)]
@@ -30,36 +30,13 @@ function initialize_random_mesh(poly_degree)
 end
 
 mutable struct GameEnvWrapper
-    mesh0
-    d0
     poly_degree
     max_actions::Any
     env::Any
     function GameEnvWrapper(poly_degree, max_actions)
         mesh, d0 = initialize_random_mesh(poly_degree)
-        env = QM.GameEnv(mesh, d0, max_actions)
-        new(deepcopy(mesh), deepcopy(d0), poly_degree, max_actions, env)
-    end
-end
-
-function random_flip!(mesh, action_list)
-    quad, edge = rand(action_list)
-    if rand() < 0.5
-        QM.left_flip!(mesh, quad, edge)
-    else
-        QM.right_flip!(mesh, quad, edge)
-    end
-end
-
-function random_flip_or_split!(mesh, action_list)
-    quad, edge = rand(action_list)
-    type = rand(1:3)
-    if type == 1
-        QM.left_flip!(mesh, quad, edge)
-    elseif type == 2
-        QM.right_flip!(mesh, quad, edge)
-    elseif type == 3
-        QM.split!(mesh, quad, edge)
+        env = QM.GameEnv(deepcopy(mesh), deepcopy(d0), max_actions)
+        new(poly_degree, max_actions, env)
     end
 end
 
@@ -90,8 +67,9 @@ function val_or_missing(vector, template, missing_val)
     return [t == 0 ? missing_val : vector[t] for t in template]
 end
 
-function action_mask(active_quad)
-    requires_mask = repeat(.!active_quad', inner=(20,1))
+function action_mask(active_quad; actions_per_edge = 4)
+    actions_per_quad = 4*actions_per_edge
+    requires_mask = repeat(.!active_quad', inner=(actions_per_quad,1))
     mask = vec([r ? -Inf32 : 0.0f0 for r in requires_mask])
     return mask
 end
@@ -100,9 +78,12 @@ function PPO.state(wrapper)
     env = wrapper.env
     
     vs = val_or_missing(env.vertex_score, env.template, 0)
+    vd = val_or_missing(env.mesh.degree, env.template, 0)
+    matrix = vcat(vs, vd)
+
     am = action_mask(env.mesh.active_quad)
     
-    s = StateData(vs, am)
+    s = StateData(matrix, am)
 
     return s
 end
@@ -134,33 +115,73 @@ function PPO.is_terminal(wrapper)
 end
 
 function PPO.reset!(wrapper)
-    mesh = deepcopy(wrapper.mesh0)
-    d0 = deepcopy(wrapper.desired_degree)
-    random_flip_or_split!(mesh, wrapper.action_list)
+    mesh, d0 = initialize_random_mesh(wrapper.poly_degree)
     wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
 end
 
-function index_to_action(index)
-    quad = div(index-1, 20) + 1
+function index_to_action(index; actions_per_edge = 4)
+    actions_per_quad = 4*actions_per_edge
 
-    quad_action_idx = rem(index-1,20)
-    edge = div(quad_action_idx, 5) + 1
-    action = rem(quad_action_idx, 5) + 1
+    quad = div(index-1, actions_per_quad) + 1
+
+    quad_action_idx = rem(index-1,actions_per_quad)
+    edge = div(quad_action_idx, actions_per_edge) + 1
+    action = rem(quad_action_idx, actions_per_edge) + 1
 
     return quad, edge, action
 end
 
-function action_space_size(env; actions_per_edge = 5)
+function action_space_size(env; actions_per_edge = 4)
     nq = QM.quad_buffer(env.mesh)
     return nq*4*actions_per_edge
+end
+
+function all_active_vertices(mesh)
+    flag = true
+    for vertex in mesh.connectivity
+        if !((vertex == 0) || (QM.is_active_vertex(mesh, vertex)))
+            flag = false
+        end
+    end
+    return flag
+end
+
+function no_quad_self_reference(mesh)
+    flag = true
+    for quad in 1:QM.quad_buffer(mesh)
+        if QM.is_active_quad(mesh, quad)
+            nbrs = mesh.q2q[:, quad]
+            if any(quad .== nbrs)
+                flag = false
+            end
+        end
+    end
+    return flag
+end
+
+function all_active_quad_or_boundary(mesh)
+    flag = true
+    for quad in mesh.q2q
+        if !(QM.is_active_quad_or_boundary(mesh, quad))
+            flag = false
+        end
+    end
+    return flag
+end
+
+function check_valid_state(wrapper)
+    mesh = wrapper.env.mesh
+    flag = all_active_vertices(mesh) && no_quad_self_reference(mesh) && all_active_quad_or_boundary(mesh)
+    return flag
 end
 
 function PPO.step!(wrapper, quad, edge, type, no_action_reward = -4)
     env = wrapper.env
 
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
-    @assert type in (1,2,3,4,5) "Expected action type in {1,2,3,4,5} got type = $type"
+    @assert type in (1,2,3,4) "Expected action type in {1,2,3,4,5} got type = $type"
     @assert edge in (1,2,3,4) "Expected edge in {1,2,3,4} got edge = $edge"
+    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
 
     if type == 1
         QM.step_left_flip!(env, quad, edge, no_action_reward=no_action_reward)
@@ -170,9 +191,12 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward = -4)
         QM.step_split!(env, quad, edge, no_action_reward=no_action_reward)
     elseif type == 4
         QM.step_collapse!(env, quad, edge, no_action_reward=no_action_reward)
-    elseif type == 5
-        QM.step_nothing!(env)
+    # elseif type == 5
+    #     QM.step_nothing!(env)
+    else
+        error("Unexpected action type $type")
     end
+
 end
 
 function PPO.step!(wrapper, action_index; no_action_reward=-4)
