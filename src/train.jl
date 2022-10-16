@@ -74,6 +74,8 @@ function ppo_iterate!(
     num_iter,
     evaluator
 )
+
+    returns, deviation = [], []
     for iter in 1:num_iter
         println("\nPPO ITERATION : $iter")
 
@@ -84,7 +86,10 @@ function ppo_iterate!(
         ppo_train!(policy, optimizer, rollouts, epsilon, batch_size, num_epochs)
 
         ret, dev = evaluator(policy, env)
+        push!(returns, ret)
+        push!(deviation, dev)
 
         @printf "RET = %1.4f\tDEV = %1.4f\n" ret dev
     end
+    return returns, deviation
 end

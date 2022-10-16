@@ -233,7 +233,7 @@ function smooth_mesh!(wrapper)
     QM.averagesmoothing!(wrapper.env.mesh)
 end
 
-function single_trajectory_return(wrapper, policy)
+function best_single_trajectory_return(wrapper, policy)
     env = wrapper.env
 
     done = PPO.is_terminal(wrapper)
@@ -255,13 +255,54 @@ function single_trajectory_return(wrapper, policy)
     end
 end
 
+function single_trajectory_scores(wrapper, policy)
+    initial_score = wrapper.env.initial_score
+    scores = []
+    done = PPO.is_terminal(wrapper)
+
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+        push!(scores, initial_score - wrapper.env.current_score)
+        done = PPO.is_terminal(wrapper)
+    end
+    return scores
+end
+
+function single_trajectory_return(wrapper, policy)
+    env = wrapper.env
+    ret = 0
+    done = PPO.is_terminal(wrapper)
+
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+        done = PPO.is_terminal(wrapper)
+        ret += PPO.reward(wrapper)
+    end
+    return ret
+end
+
+function average_returns(wrapper, policy, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = single_trajectory_return(wrapper, policy)
+    end
+    return Flux.mean(ret), Flux.std(ret)
+end
+
 function single_trajectory_normalized_return(wrapper, policy)
     env = wrapper.env
     maxreturn = env.current_score - env.opt_score
     if maxreturn == 0
         return 1.0
     else
-        ret = single_trajectory_return(wrapper, policy)
+        ret = best_single_trajectory_return(wrapper, policy)
         return ret / maxreturn
     end
 end
