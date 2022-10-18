@@ -172,6 +172,18 @@ function PPO.step!(wrapper, action_index; no_action_reward=-4)
     PPO.step!(wrapper, quad, edge, type, no_action_reward)
 end
 
+function plot_mesh(mesh; elem_numbers = false, internal_order = false, node_numbers = false)
+    mesh = deepcopy(mesh)
+    QM.reindex_quads!(mesh)
+    QM.reindex_vertices!(mesh)
+    fig, ax = PQ.plot_mesh(QM.active_vertex_coordinates(mesh),
+                    QM.active_quad_connectivity(mesh),
+                    elem_numbers = elem_numbers,
+                    internal_order=internal_order,
+                    node_numbers=node_numbers)
+    return fig
+end
+
 function plot_env(env; elem_numbers = false, internal_order=false)
     env = deepcopy(env)
 
@@ -277,4 +289,17 @@ function average_normalized_returns(wrapper, policy, num_trajectories)
         ret[idx] = single_trajectory_normalized_return(wrapper, policy)
     end
     return Flux.mean(ret), Flux.std(ret)
+end
+
+function moving_average(vector, window_size = 5)
+    half_window = div(window_size,2)
+    smoothed = similar(vector)
+    N = length(vector)
+    for (idx, val) in enumerate(vector)
+        start = max(1,idx-half_window)
+        start = min(N-window_size+1,start)
+        stop = start + window_size - 1
+        smoothed[idx] = sum(vector[start:stop])/window_size
+    end
+    return smoothed
 end
