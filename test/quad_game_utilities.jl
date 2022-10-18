@@ -12,38 +12,6 @@ PQ = PlotQuadMesh
 
 include("policy.jl")
 
-function initialize_random_mesh(poly_degree)
-    boundary_pts = RQ.random_polygon(poly_degree)
-    angles = QM.polygon_interior_angles(boundary_pts)
-    bdry_d0 = QM.desired_degree.(angles)
-
-    mesh = RQ.quad_mesh(boundary_pts)
-    mesh = QM.QuadMesh(mesh.p, mesh.t, mesh.t2t, mesh.t2n)
-
-    mask = .![trues(poly_degree); falses(mesh.num_vertices - poly_degree)]
-    mask = mask .& mesh.vertex_on_boundary[mesh.active_vertex]
-
-    d0 = [bdry_d0; fill(4, mesh.num_vertices - poly_degree)]
-    d0[mask] .= 3
-
-    return mesh, d0
-end
-
-mutable struct GameEnvWrapper
-    poly_degree
-    max_actions::Any
-    env::Any
-    function GameEnvWrapper(poly_degree, max_actions)
-        mesh, d0 = initialize_random_mesh(poly_degree)
-        env = QM.GameEnv(deepcopy(mesh), deepcopy(d0), max_actions)
-        new(poly_degree, max_actions, env)
-    end
-end
-
-function Base.show(io::IO, wrapper::GameEnvWrapper)
-    println(io, "GameEnvWrapper")
-    show(io, wrapper.env)
-end
 
 struct StateData
     vertex_score::Any
@@ -112,11 +80,6 @@ end
 function PPO.is_terminal(wrapper)
     env = wrapper.env
     return env.is_terminated
-end
-
-function PPO.reset!(wrapper)
-    mesh, d0 = initialize_random_mesh(wrapper.poly_degree)
-    wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
 end
 
 function index_to_action(index; actions_per_edge = 4)
@@ -225,11 +188,11 @@ function plot_env(env; elem_numbers = false, internal_order=false)
     return fig
 end
 
-function plot_env(wrapper::GameEnvWrapper; elem_numbers = false, internal_order = false)
+function plot_wrapper(wrapper; elem_numbers = false, internal_order = false)
     plot_env(wrapper.env, elem_numbers=elem_numbers, internal_order=internal_order)
 end
 
-function smooth_mesh!(wrapper)
+function smooth_wrapper!(wrapper)
     QM.averagesmoothing!(wrapper.env.mesh)
 end
 
