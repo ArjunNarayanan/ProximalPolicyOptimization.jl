@@ -62,7 +62,7 @@ end
 
 function random_actions!(mesh, num_actions)
     count = 0
-    while count <= num_actions
+    while count < num_actions
         success = random_action!(mesh)
         if success
             count += 1

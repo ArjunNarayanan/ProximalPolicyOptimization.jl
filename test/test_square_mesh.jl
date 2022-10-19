@@ -23,17 +23,25 @@ optimizer = ADAM(1e-4)
 ret, dev = PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, discount, 
 epsilon, batch_size, epochs_per_iteration, num_iter, evaluator)
 
+# using BSON: @save
+# @save "output/square_mesh_policy.bson" policy
+
 ret, dev = average_normalized_returns(wrapper, policy, 100)
 
 PPO.reset!(wrapper)
 
+smooth_wrapper!(wrapper)
+fig = plot_wrapper(wrapper)
+fig.savefig("output/initial_square_mesh.png")
+fig.savefig("output/final_square_mesh.png")
+ret = single_trajectory_return(wrapper, policy)
 
-using PyPlot
-fig, ax = subplots()
-ax.plot(ret)
-ax.grid()
-ax.set_xlabel("PPO Iterations")
-ax.set_ylabel("Average returns")
-ax.set_title("Average returns vs PPO iterations for SquareMesh environment")
-fig.tight_layout()
-fig.savefig("output/square-mesh-returns.png")
+# using PyPlot
+# fig, ax = subplots()
+# ax.plot(ret)
+# ax.grid()
+# ax.set_xlabel("PPO Iterations")
+# ax.set_ylabel("Average returns")
+# ax.set_title("Average returns vs PPO iterations for SquareMesh environment")
+# fig.tight_layout()
+# fig.savefig("output/square-mesh-returns.png")

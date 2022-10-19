@@ -15,18 +15,18 @@ function initialize_random_mesh(poly_degree)
     return mesh, d0
 end
 
-mutable struct GameEnvWrapper
+mutable struct RandPolyEnv
     poly_degree
     max_actions::Any
     env::Any
-    function GameEnvWrapper(poly_degree, max_actions)
+    function RandPolyEnv(poly_degree, max_actions)
         mesh, d0 = initialize_random_mesh(poly_degree)
         env = QM.GameEnv(deepcopy(mesh), deepcopy(d0), max_actions)
         new(poly_degree, max_actions, env)
     end
 end
 
-function Base.show(io::IO, wrapper::GameEnvWrapper)
+function Base.show(io::IO, wrapper::RandPolyEnv)
     println(io, "GameEnvWrapper")
     show(io, wrapper.env)
 end
