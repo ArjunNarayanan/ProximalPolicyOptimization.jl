@@ -26,15 +26,15 @@ epsilon, batch_size, epochs_per_iteration, num_iter, evaluator)
 # using BSON: @save
 # @save "output/square_mesh_policy.bson" policy
 
-ret, dev = average_normalized_returns(wrapper, policy, 100)
+# ret, dev = average_normalized_returns(wrapper, policy, 100)
 
-PPO.reset!(wrapper)
+# PPO.reset!(wrapper)
 
-smooth_wrapper!(wrapper)
-fig = plot_wrapper(wrapper)
-fig.savefig("output/initial_square_mesh.png")
-fig.savefig("output/final_square_mesh.png")
-ret = single_trajectory_return(wrapper, policy)
+# smooth_wrapper!(wrapper)
+# fig = plot_wrapper(wrapper)
+# fig.savefig("output/initial_square_mesh.png")
+# fig.savefig("output/final_square_mesh.png")
+# ret = single_trajectory_return(wrapper, policy)
 
 # using PyPlot
 # fig, ax = subplots()
