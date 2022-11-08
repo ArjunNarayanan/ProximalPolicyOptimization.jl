@@ -35,22 +35,22 @@ function val_or_missing(vector, template, missing_val)
     return [t == 0 ? missing_val : vector[t] for t in template]
 end
 
-function action_mask(active_quad; actions_per_edge = 4)
-    actions_per_quad = 4*actions_per_edge
-    requires_mask = repeat(.!active_quad', inner=(actions_per_quad,1))
+function action_mask(active_quad; actions_per_edge=4)
+    actions_per_quad = 4 * actions_per_edge
+    requires_mask = repeat(.!active_quad', inner=(actions_per_quad, 1))
     mask = vec([r ? -Inf32 : 0.0f0 for r in requires_mask])
     return mask
 end
 
 function PPO.state(wrapper)
     env = wrapper.env
-    
+
     vs = val_or_missing(env.vertex_score, env.template, 0)
     vd = val_or_missing(env.mesh.degree, env.template, 0)
     matrix = vcat(vs, vd)
 
     am = action_mask(env.mesh.active_quad)
-    
+
     s = StateData(matrix, am)
 
     return s
@@ -82,21 +82,21 @@ function PPO.is_terminal(wrapper)
     return env.is_terminated
 end
 
-function index_to_action(index; actions_per_edge = 4)
-    actions_per_quad = 4*actions_per_edge
+function index_to_action(index; actions_per_edge=4)
+    actions_per_quad = 4 * actions_per_edge
 
-    quad = div(index-1, actions_per_quad) + 1
+    quad = div(index - 1, actions_per_quad) + 1
 
-    quad_action_idx = rem(index-1,actions_per_quad)
+    quad_action_idx = rem(index - 1, actions_per_quad)
     edge = div(quad_action_idx, actions_per_edge) + 1
     action = rem(quad_action_idx, actions_per_edge) + 1
 
     return quad, edge, action
 end
 
-function action_space_size(env; actions_per_edge = 4)
+function action_space_size(env; actions_per_edge=4)
     nq = QM.quad_buffer(env.mesh)
-    return nq*4*actions_per_edge
+    return nq * 4 * actions_per_edge
 end
 
 function all_active_vertices(mesh)
@@ -138,12 +138,12 @@ function check_valid_state(wrapper)
     return flag
 end
 
-function PPO.step!(wrapper, quad, edge, type, no_action_reward = -4)
+function PPO.step!(wrapper, quad, edge, type, no_action_reward=-4)
     env = wrapper.env
 
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
-    @assert type in (1,2,3,4) "Expected action type in {1,2,3,4,5} got type = $type"
-    @assert edge in (1,2,3,4) "Expected edge in {1,2,3,4} got edge = $edge"
+    @assert type in (1, 2, 3, 4) "Expected action type in {1,2,3,4,5} got type = $type"
+    @assert edge in (1, 2, 3, 4) "Expected edge in {1,2,3,4} got edge = $edge"
     @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
 
     if type == 1
@@ -154,8 +154,8 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward = -4)
         QM.step_split!(env, quad, edge, no_action_reward=no_action_reward)
     elseif type == 4
         QM.step_collapse!(env, quad, edge, no_action_reward=no_action_reward)
-    # elseif type == 5
-    #     QM.step_nothing!(env)
+        # elseif type == 5
+        #     QM.step_nothing!(env)
     else
         error("Unexpected action type $type")
     end
@@ -167,41 +167,42 @@ function PPO.step!(wrapper, action_index; no_action_reward=-4)
     na = action_space_size(env)
     @assert 0 < action_index <= na "Expected 0 < action_index <= $na, got action_index = $action_index"
     @assert !env.is_terminated "Attempting to step in terminated environment with action $action_index"
-    
+
     quad, edge, type = index_to_action(action_index)
     PPO.step!(wrapper, quad, edge, type, no_action_reward)
 end
 
-function plot_mesh(mesh; elem_numbers = false, internal_order = false, node_numbers = false)
+function plot_mesh(mesh; elem_numbers=false, internal_order=false, node_numbers=false)
     mesh = deepcopy(mesh)
     QM.reindex_quads!(mesh)
     QM.reindex_vertices!(mesh)
     fig, ax = PQ.plot_mesh(QM.active_vertex_coordinates(mesh),
-                    QM.active_quad_connectivity(mesh),
-                    elem_numbers = elem_numbers,
-                    internal_order=internal_order,
-                    node_numbers=node_numbers)
+        QM.active_quad_connectivity(mesh),
+        elem_numbers=elem_numbers,
+        internal_order=internal_order,
+        node_numbers=node_numbers)
     return fig
 end
 
-function plot_env(env; elem_numbers = false, internal_order=false)
+function plot_env(env; number_elements=false, internal_order=false, vertex_score=true)
     env = deepcopy(env)
 
     QM.reindex_game_env!(env)
     mesh = env.mesh
-    vs = QM.active_vertex_score(env)
-    fig, ax = PQ.plot_mesh(
+    vs = vertex_score ? QM.active_vertex_score(env) : []
+
+    fig = PQ.plot_mesh(
         QM.active_vertex_coordinates(mesh),
         QM.active_quad_connectivity(mesh),
-        vertex_score = vs,
-        elem_numbers=elem_numbers,
+        vertex_score=vs,
+        number_elements=number_elements,
         internal_order=internal_order
     )
     return fig
 end
 
-function plot_wrapper(wrapper; elem_numbers = false, internal_order = false)
-    plot_env(wrapper.env, elem_numbers=elem_numbers, internal_order=internal_order)
+function plot_wrapper(wrapper; number_elements=false, internal_order=false, vertex_score=true)
+    return plot_env(wrapper.env, number_elements=number_elements, internal_order=internal_order, vertex_score=vertex_score)
 end
 
 function smooth_wrapper!(wrapper)
@@ -212,22 +213,29 @@ function best_single_trajectory_return(wrapper, policy)
     env = wrapper.env
 
     done = PPO.is_terminal(wrapper)
-    if done
-        return 0.0
-    else
-        initial_score = env.current_score
-        minscore = initial_score
-        while !done
-            probs = PPO.action_probabilities(policy, PPO.state(wrapper))
-            action = rand(Categorical(probs))
 
-            PPO.step!(wrapper, action)
+    initial_score = env.current_score
+    minscore = initial_score
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
 
-            minscore = min(minscore, env.current_score)
-            done = PPO.is_terminal(wrapper)
-        end
-        return initial_score - minscore
+        PPO.step!(wrapper, action)
+
+        minscore = min(minscore, env.current_score)
+        done = PPO.is_terminal(wrapper)
     end
+    return initial_score - minscore
+
+end
+
+function average_best_returns(wrapper, policy, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = best_single_trajectory_return(wrapper, policy)
+    end
+    return Flux.mean(ret), Flux.std(ret)
 end
 
 function single_trajectory_scores(wrapper, policy)
@@ -262,6 +270,25 @@ function single_trajectory_return(wrapper, policy)
     return ret
 end
 
+function best_state_in_rollout(wrapper, policy)
+    wrappers = [deepcopy(wrapper)]
+    scores = [wrapper.env.current_score - wrapper.env.opt_score]
+    done = PPO.is_terminal(wrapper)
+
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+        done = PPO.is_terminal(wrapper)
+
+        push!(wrappers, deepcopy(wrapper))
+        push!(scores, wrapper.env.current_score - wrapper.env.opt_score)
+    end
+    idx = argmin(scores)
+    return wrappers[idx]
+end
+
 function average_returns(wrapper, policy, num_trajectories)
     ret = zeros(num_trajectories)
     for idx = 1:num_trajectories
@@ -291,15 +318,15 @@ function average_normalized_returns(wrapper, policy, num_trajectories)
     return Flux.mean(ret), Flux.std(ret)
 end
 
-function moving_average(vector, window_size = 5)
-    half_window = div(window_size,2)
+function moving_average(vector, window_size=5)
+    half_window = div(window_size, 2)
     smoothed = similar(vector)
     N = length(vector)
     for (idx, val) in enumerate(vector)
-        start = max(1,idx-half_window)
-        start = min(N-window_size+1,start)
+        start = max(1, idx - half_window)
+        start = min(N - window_size + 1, start)
         stop = start + window_size - 1
-        smoothed[idx] = sum(vector[start:stop])/window_size
+        smoothed[idx] = sum(vector[start:stop]) / window_size
     end
     return smoothed
 end

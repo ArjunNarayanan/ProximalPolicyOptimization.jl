@@ -6,8 +6,8 @@ function evaluator(policy, wrapper; num_trajectories=100)
     return ret, dev
 end
 
-mesh_size = 3
-num_rand_actions = 5
+mesh_size = 4
+num_rand_actions = 10
 max_actions = 10
 discount = 1.0
 epsilon = 0.05
@@ -17,11 +17,20 @@ episodes_per_iteration = 20
 num_iter = 1000
 
 wrapper = SquareMeshWrapper(mesh_size, num_rand_actions, max_actions)
-policy = SimplePolicy.Policy(72, 128, 2, 4)
-optimizer = ADAM(1e-4)
 
-ret, dev = PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, discount, 
-epsilon, batch_size, epochs_per_iteration, num_iter, evaluator)
+wrapper = SquareMeshWrapper(mesh_size, 0, max_actions)
+smooth_wrapper!(wrapper)
+fig = plot_wrapper(wrapper, vertex_score = false)
+
+fig.savefig("test/output/figures/perfect_square_mesh.png")
+
+
+
+# policy = SimplePolicy.Policy(72, 128, 2, 4)
+# optimizer = ADAM(1e-4)
+
+# ret, dev = PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, discount, 
+# epsilon, batch_size, epochs_per_iteration, num_iter, evaluator)
 
 # using BSON: @save
 # @save "output/square_mesh_policy.bson" policy

@@ -4,9 +4,7 @@ mutable struct SquareMeshWrapper
     max_actions::Any
     env::Any
     function SquareMeshWrapper(size, num_random_actions, max_actions)
-        vb = 32
-        qb = 30
-        mesh0 = QM.square_mesh(size, vertex_buffer = vb, quad_buffer = qb)
+        mesh0 = QM.square_mesh(size)
 
         mesh = deepcopy(mesh0)
         random_actions!(mesh, num_random_actions)
