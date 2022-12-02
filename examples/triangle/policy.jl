@@ -1,5 +1,3 @@
-module SimplePolicy
-
 using Flux
 
 struct Policy
@@ -28,6 +26,4 @@ end
 
 function (p::Policy)(state)
     return p.model(state)
-end
-
 end

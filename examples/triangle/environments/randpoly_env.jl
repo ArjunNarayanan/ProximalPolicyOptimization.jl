@@ -1,4 +1,3 @@
-using LinearAlgebra
 using TriMeshGame
 using RandomQuadMesh
 using ProximalPolicyOptimization
@@ -7,63 +6,52 @@ TM = TriMeshGame
 RQ = RandomQuadMesh
 PPO = ProximalPolicyOptimization
 
-function enclosed_angle(v1,v2)
-    @assert length(v1) == length(v2) == 2
-    dotp = dot(v1,v2)
-    detp = v1[1]*v2[2] - v1[2]*v2[1]
-    rad = atan(detp, dotp)
-    if rad < 0
-        rad += 2pi
-    end
+function get_desired_degree(initial_boundary_points, vertex_on_boundary)
+    num_verts = length(vertex_on_boundary)
+    num_initial_boundary_points = size(initial_boundary_points, 2)
+    initial_boundary_points_desired_degree = TM.get_desired_degree.(
+        TM.get_polygon_interior_angles(initial_boundary_points)
+        )
 
-    return rad2deg(rad) 
+    initial_vertex_on_boundary = falses(num_verts)
+    initial_vertex_on_boundary[1:num_initial_boundary_points] .= true
+
+    additional_vertex_on_boundary = (.!initial_vertex_on_boundary) .& vertex_on_boundary
+
+    desired_degree = fill(6, num_verts)
+    desired_degree[1:num_initial_boundary_points] .= initial_boundary_points_desired_degree
+    desired_degree[additional_vertex_on_boundary] .= 4
+
+    return desired_degree
 end
 
-function get_polygon_interior_angles(p)
-    n = size(p,2)
-    angles = zeros(n)
-    for i = 1:n
-        previ = i == 1 ? n : i -1
-        nexti = i == n ? 1 : i + 1
-
-        v1 = p[:,nexti] - p[:,i]
-        v2 = p[:,previ] - p[:,i]
-        angles[i] = enclosed_angle(v1,v2)
-    end
-    return angles
-end
-
-function get_desired_degree(angle)
-    ndiv = 1
-    err = abs(angle - 60)
-    while err > abs(angle/(ndiv+1) - 60)
-        ndiv += 1
-        err = abs(angle/ndiv - 60) 
-    end
-    return ndiv+1
-end
-
-function generate_random_mesh_and_desired_degree(polygon_degree)
+function generate_random_game_environment(polygon_degree, hmax, max_actions)
     boundary_pts = RQ.random_polygon(polygon_degree)
-    mesh = RQ.tri_mesh(boundary_pts)
+    mesh = RQ.tri_mesh(boundary_pts, hmax = hmax, allow_vertex_insert = true)
     mesh = TM.Mesh(mesh.p, mesh.t)
+    
+    vertex_on_boundary = TM.active_vertex_on_boundary(mesh)
+    desired_degree = get_desired_degree(boundary_pts, vertex_on_boundary)
 
-    desired_degree = get_desired_degree.(get_polygon_interior_angles(boundary_pts))            
-    return mesh, desired_degree
+    env = TM.GameEnv(mesh, desired_degree, max_actions)
+
+    return env
 end
 
-struct RandPolyEnv
+mutable struct RandPolyWrapper
     polygon_degree
-    env
+    hmax
     max_actions
-    function RandPolyEnv(polygon_degree, max_actions)
-        mesh, desired_degree = generate_random_mesh_and_desired_degree(polygon_degree)
-        env = TM.GameEnv(mesh, desired_degree, max_actions)
-        new(polygon_degree, env, max_actions)
+    env
+    function RandPolyWrapper(polygon_degree, hmax, max_actions)
+        env = generate_random_game_environment(polygon_degree, hmax, max_actions)
+        new(polygon_degree, hmax, max_actions, env)
     end
 end
 
 function PPO.reset!(wrapper)
-    mesh, desired_degree = generate_random_mesh_and_desired_degree(wrapper.polygon_degree)
-    env = TM.GameEnv(mesh, desired_degree, wrapper.max_actions)
+    env = generate_random_game_environment(polygon_degree, hmax, max_actions)
+    wrapper.env = env
 end
+
+env = generate_random_game_environment(20, 0.3, 50)
