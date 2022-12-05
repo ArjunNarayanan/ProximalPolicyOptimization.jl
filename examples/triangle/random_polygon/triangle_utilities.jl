@@ -11,6 +11,10 @@ MP = MeshPlotter
 const HALF_EDGES_PER_ELEMENT = 3
 const ACTIONS_PER_EDGE = 3
 
+
+
+#####################################################################################################################
+# GENERATING AND MANIPULATING ENVIRONMENT STATE
 struct StateData
     vertex_score::Any
     action_mask
@@ -36,6 +40,16 @@ function pad_action_mask(action_mask_vector)
     num_new_actions = max_num_actions .- num_actions
     padded_action_mask = [TM.pad(am, nr, -Inf32) for (am, nr) in zip(action_mask_vector, num_new_actions)]
     return padded_action_mask
+end
+
+function PPO.prepare_state_data_for_batching(state_data_vector)
+    vertex_score = [s.vertex_score for s in state_data_vector]
+    action_mask = [s.action_mask for s in state_data_vector]
+
+    padded_vertex_scores = pad_vertex_scores(vertex_score)
+    padded_action_mask = pad_action_mask(action_mask)
+
+    state_data_vector .= [StateData(vs, am) for (vs, am) in zip(padded_vertex_scores, padded_action_mask)]
 end
 
 function PPO.batch_state(state_data_vector)
@@ -91,7 +105,11 @@ function PPO.state(wrapper)
 
     return s
 end
+#####################################################################################################################
 
+
+#####################################################################################################################
+# EVALUATING POLICY
 function PPO.action_probabilities(policy, state)
     vertex_score, action_mask = state.vertex_score, state.action_mask
 
@@ -100,6 +118,21 @@ function PPO.action_probabilities(policy, state)
     return p
 end
 
+function PPO.batch_action_probabilities(policy, state)
+    vertex_score, action_mask = state.vertex_score, state.action_mask
+    nf, nq, nb = size(vertex_score)
+    logits = reshape(policy(vertex_score), :, nb) + action_mask
+    probs = softmax(logits, dims=1)
+    return probs
+end
+#####################################################################################################################
+
+
+
+
+
+#####################################################################################################################
+# STEPPING THE ENVIRONMENT
 function PPO.reward(wrapper)
     return wrapper.env.reward
 end
@@ -128,7 +161,7 @@ function step_wrapper!(wrapper, triangle_index, half_edge_index, action_type, no
     @assert action_type in 1:ACTIONS_PER_EDGE "Expected action type in 1:$ACTIONS_PER_EDGE, got type = $action_type"
     @assert half_edge_index in 1:HALF_EDGES_PER_ELEMENT "Expected edge in 1:$HALF_EDGES_PER_ELEMENT, got edge = $half_edge_index"
 
-    TM.step!(env, triangle_index, half_edge_index, action_type, no_action_reward = no_action_reward)
+    TM.step!(env, triangle_index, half_edge_index, action_type, no_action_reward=no_action_reward)
 end
 
 function action_space_size(env)
@@ -136,19 +169,13 @@ function action_space_size(env)
     return nt * HALF_EDGES_PER_ELEMENT * ACTIONS_PER_EDGE
 end
 
-function PPO.step!(wrapper, linear_action_index; no_action_reward = -4)
+function PPO.step!(wrapper, linear_action_index; no_action_reward=-4)
     @assert 1 <= linear_action_index <= action_space_size(wrapper.env)
 
     triangle_index, half_edge_index, action_type = index_to_action(linear_action_index)
     step_wrapper!(wrapper, triangle_index, half_edge_index, action_type, no_action_reward)
 end
-
-
-
-
-
-
-
+#####################################################################################################################
 
 
 
@@ -156,19 +183,114 @@ end
 
 #####################################################################################################################
 # PLOTTING STUFF
+function smooth_wrapper!(wrapper, niter = 1)
+    for iteration in 1:niter
+        TM.averagesmoothing!(wrapper.env.mesh)
+    end
+end
+
 function plot_env(_env)
     env = deepcopy(_env)
     TM.reindex!(env)
 
     mesh = env.mesh
     fig = MP.plot_mesh(TM.active_vertex_coordinates(mesh), TM.active_triangle_connectivity(mesh),
-    vertex_score = TM.active_vertex_score(env), vertex_size = 20, fontsize = 15)
+        vertex_score=TM.active_vertex_score(env), vertex_size=20, fontsize=15)
 
     return fig
 end
 
-function plot_wrapper(wrapper)
+function plot_wrapper(wrapper, filename = "", smooth_iterations = 5)
+    smooth_wrapper!(wrapper, smooth_iterations)
+    
     fig = plot_env(wrapper.env)
+
+    if length(filename) > 0
+        fig.tight_layout()
+        fig.savefig(filename)
+    end
+
     return fig
+end
+
+function plot_trajectory(policy, wrapper, root_directory)
+    if !isdir(root_directory)
+        mkdir(root_directory)
+    end
+
+    fig_name = "figure-" * lpad(0, 3, "0") * ".png"
+    filename = joinpath(root_directory, fig_name)
+    plot_wrapper(wrapper, filename)
+
+    fig_index = 1
+    done = PPO.is_terminal(wrapper)
+    while !done 
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+        
+        fig_name = "figure-" * lpad(fig_index, 3, "0") * ".png"
+        filename = joinpath(root_directory, fig_name)
+        plot_wrapper(wrapper, filename)
+        fig_index += 1
+
+        done = PPO.is_terminal(wrapper)
+    end
+end
+#####################################################################################################################
+
+
+
+#####################################################################################################################
+# EVALUATING POLICY
+function best_single_trajectory_return(policy, wrapper)
+    env = wrapper.env
+
+    done = PPO.is_terminal(wrapper)
+
+    initial_score = env.current_score
+    minscore = initial_score
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+
+        minscore = min(minscore, env.current_score)
+        done = PPO.is_terminal(wrapper)
+    end
+    return initial_score - minscore
+end
+
+function average_best_returns(policy, wrapper, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = best_single_trajectory_return(policy, wrapper)
+    end
+    return Flux.mean(ret), Flux.std(ret)
+end
+
+function best_state_in_rollout(wrapper, policy)
+    best_wrapper = deepcopy(wrapper)
+
+    minscore = wrapper.env.current_score
+    done = PPO.is_terminal(wrapper)
+
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+        done = PPO.is_terminal(wrapper)
+
+        if wrapper.env.current_score < minscore 
+            minscore = wrapper.env.current_score
+            best_wrapper = deepcopy(wrapper)
+        end
+    end
+
+    return best_wrapper
 end
 #####################################################################################################################

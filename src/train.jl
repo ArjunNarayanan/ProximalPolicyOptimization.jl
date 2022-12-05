@@ -67,25 +67,27 @@ function ppo_iterate!(
     env,
     optimizer,
     episodes_per_iteration,
-    discount,
-    epsilon,
-    batch_size,
-    num_epochs,
-    num_iter,
-    evaluator
+    minibatch_size,
+    num_ppo_iterations;
+    epochs_per_iteration = 10,
+    discount = 0.95,
+    epsilon = 0.05,
+    num_evaluation_trajectories = 100
 )
 
     returns, deviation = [], []
-    for iter in 1:num_iter
+    for iter in 1:num_ppo_iterations
         println("\nPPO ITERATION : $iter")
 
         rollouts = EpisodeData()
         collect_rollouts!(rollouts, env, policy, episodes_per_iteration)
+
+        prepare_state_data_for_batching(rollouts.state_data)
         compute_state_value!(rollouts, discount)
 
-        ppo_train!(policy, optimizer, rollouts, epsilon, batch_size, num_epochs)
+        ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration)
 
-        ret, dev = evaluator(policy, env)
+        ret, dev = average_returns(policy, env, num_evaluation_trajectories)
         push!(returns, ret)
         push!(deviation, dev)
 

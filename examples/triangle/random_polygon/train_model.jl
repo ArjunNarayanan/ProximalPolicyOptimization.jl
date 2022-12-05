@@ -4,26 +4,32 @@ include("../policy.jl")
 
 
 polygon_degree = 10
-hmax = 0.2
+hmax = 0.30
 max_actions = 50
+
 episodes_per_iteration = 10
+minibatch_size = 32
+epochs_per_iteration = 10
+num_ppo_iterations = 200
 
 wrapper = RandPolyWrapper(polygon_degree, hmax, max_actions)
-policy = Policy(24, 32, 2, ACTIONS_PER_EDGE)
+# policy = Policy(24, 32, 2, ACTIONS_PER_EDGE)
+# optimizer = Adam(1e-4)
 
-rollouts = PPO.EpisodeData()
-PPO.collect_rollouts!(rollouts, wrapper, policy, episodes_per_iteration)
+# ret, dev = PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, minibatch_size, num_ppo_iterations)
 
-PPO.shuffle!(rollouts)
+ret, dev = average_best_returns(policy, wrapper, 100)
 
-vertex_score = [s.vertex_score for s in rollouts.state_data]
-action_mask = [s.action_mask for s in rollouts.state_data]
+PPO.reset!(wrapper)
+plot_trajectory(policy, wrapper, "examples/triangle/random_polygon/output/figures/rollout-8")
 
-padded_vertex_scores = pad_vertex_scores(vertex_score)
-padded_action_mask = pad_action_mask(action_mask)
 
-num_half_edges = [size(vs, 2) for vs in vertex_score]
-max_num_half_edges = maximum(num_half_edges)
-num_new_cols = max_num_half_edges .- num_half_edges
-vertex_score = [TM.zero_pad(vs, nc) for (vs, nc) in zip(vertex_score, num_new_cols)]
-num_half_edges = [size(vs, 2) for vs in vertex_score]
+
+
+# using BSON: @save
+# @save "examples/triangle/random_polygon/output/best_model.bson" policy 
+
+# using PyPlot
+# fig, ax = subplots()
+# ax.plot(ret)
+# fig
