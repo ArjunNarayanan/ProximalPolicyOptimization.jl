@@ -111,6 +111,77 @@ end
 
 
 #####################################################################################################################
+# CHECKING VALID STATE
+function all_active_vertices(mesh)
+    flag = true
+    for vertex in mesh.connectivity
+        if !((vertex == 0) || (TM.is_active_vertex(mesh, vertex)))
+            flag = false
+        end
+    end
+    return flag
+end
+
+function all_active_triangle_or_boundary(mesh)
+    flag = true
+    for triangle in mesh.t2t
+        if !(TM.is_active_triangle_or_boundary(mesh, triangle))
+            flag = false
+        end
+    end
+    return flag
+end
+
+function no_triangle_self_reference(mesh)
+    flag = true
+    for triangle in 1:TM.triangle_buffer(mesh)
+        if TM.is_active_triangle(mesh, triangle)
+            nbrs = mesh.t2t[:, triangle]
+            if any(triangle .== nbrs)
+                flag = false
+            end
+        end
+    end
+    return flag
+end
+
+function check_valid_state(wrapper)
+    mesh = wrapper.env.mesh
+    flag = all_active_vertices(mesh) && 
+           no_triangle_self_reference(mesh) && 
+           all_active_triangle_or_boundary(mesh) &&
+           all_unique_neighbors(mesh)
+
+    return flag
+end
+
+function has_unique_neighbors(neighbors)
+    @assert length(neighbors) == 3
+    a, b, c = neighbors
+
+    flag = (a != b || a == 0) &&
+           (a != c || a == 0) &&
+           (b != c || b == 0)
+    return flag
+end
+
+function all_unique_neighbors(mesh)
+    flag = true
+    for triangle in 1:TM.triangle_buffer(mesh)
+        if TM.is_active_triangle(mesh, triangle)
+            neighbors = mesh.t2t[:, triangle]
+            flag = flag && has_unique_neighbors(neighbors)
+        end
+    end
+    return flag
+end
+#####################################################################################################################
+
+
+
+
+
+#####################################################################################################################
 # EVALUATING POLICY
 function PPO.action_probabilities(policy, state)
     vertex_score, action_mask = state.vertex_score, state.action_mask
@@ -162,8 +233,11 @@ function step_wrapper!(wrapper, triangle_index, half_edge_index, action_type, no
     @assert TM.is_active_triangle(env.mesh, triangle_index) "Attempting to act on inactive triangle $triangle_index with action ($triangle_index, $half_edge_index, $action_type)"
     @assert action_type in 1:ACTIONS_PER_EDGE "Expected action type in 1:$ACTIONS_PER_EDGE, got type = $action_type"
     @assert half_edge_index in 1:HALF_EDGES_PER_ELEMENT "Expected edge in 1:$HALF_EDGES_PER_ELEMENT, got edge = $half_edge_index"
-
+    
+    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
     TM.step!(env, triangle_index, half_edge_index, action_type, no_action_reward=no_action_reward)
+    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
+
 end
 
 function action_space_size(env)
@@ -331,6 +405,25 @@ function average_best_returns(policy, wrapper, num_trajectories)
     return Flux.mean(ret), Flux.std(ret)
 end
 
+function best_normalized_single_trajectory_return(policy, wrapper)
+    max_return = wrapper.env.current_score - wrapper.env.opt_score
+    if max_return == 0
+        return 1.0
+    else
+        ret = best_single_trajectory_return(policy, wrapper)
+        return ret/max_return
+    end
+end
+
+function average_normalized_best_returns(policy, wrapper, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = best_normalized_single_trajectory_return(policy, wrapper)
+    end
+    return Flux.mean(ret), Flux.std(ret)
+end
+
 function best_state_in_rollout(wrapper, policy)
     best_wrapper = deepcopy(wrapper)
 
@@ -352,4 +445,48 @@ function best_state_in_rollout(wrapper, policy)
 
     return best_wrapper
 end
+#####################################################################################################################
+
+
+
+
+
+#####################################################################################################################
+# DEBUGGING : SEARCHING FOR INVALID STATE
+
+function check_invalid_action(policy, wrapper)   
+    done = PPO.is_terminal(wrapper)
+    history = Dict("envs" => [], "actions" => [])
+
+    while !done
+        prev_env = deepcopy(wrapper)
+
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        push!(history["envs"], prev_env)
+        push!(history["actions"], action)
+
+        try
+            PPO.step!(wrapper, action)
+        catch e
+            println("EXCEPTION OCCURRED WHILE TAKING ACTION $action")
+            return prev_env, action
+        end
+
+        prev_env = deepcopy(wrapper)
+        done = PPO.is_terminal(wrapper)
+    end
+end
+
+function search_invalid_action(policy, wrapper, num_iter)
+    for iteration in 1:num_iter
+        PPO.reset!(wrapper)
+        out = check_invalid_action(policy, wrapper)
+        if !isnothing(out)
+            return out
+        end
+    end
+end
+
 #####################################################################################################################
