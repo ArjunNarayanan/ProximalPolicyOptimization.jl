@@ -43,6 +43,7 @@ function collect_step_data!(episode_data, env, policy)
     s = state(env)
     ap = action_probabilities(policy, s)
     a = rand(Categorical(ap))
+    @assert ap[a] > 0.0
 
     step!(env, a)
 

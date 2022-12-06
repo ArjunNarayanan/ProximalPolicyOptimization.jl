@@ -68,14 +68,13 @@ function ppo_iterate!(
     optimizer,
     episodes_per_iteration,
     minibatch_size,
-    num_ppo_iterations;
+    num_ppo_iterations,
+    evaluator;
     epochs_per_iteration = 10,
     discount = 0.95,
     epsilon = 0.05,
-    num_evaluation_trajectories = 100
 )
 
-    returns, deviation = [], []
     for iter in 1:num_ppo_iterations
         println("\nPPO ITERATION : $iter")
 
@@ -87,11 +86,6 @@ function ppo_iterate!(
 
         ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration)
 
-        ret, dev = average_returns(policy, env, num_evaluation_trajectories)
-        push!(returns, ret)
-        push!(deviation, dev)
-
-        @printf "RET = %1.4f\tDEV = %1.4f\n" ret dev
+        evaluator(policy, env)
     end
-    return returns, deviation
 end

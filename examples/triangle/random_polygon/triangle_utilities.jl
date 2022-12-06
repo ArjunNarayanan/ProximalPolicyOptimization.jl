@@ -3,6 +3,8 @@ using TriMeshGame
 using MeshPlotter
 using ProximalPolicyOptimization
 using Distributions: Categorical
+using BSON: @save
+using Printf
 
 TM = TriMeshGame
 PPO = ProximalPolicyOptimization
@@ -243,7 +245,64 @@ end
 
 
 #####################################################################################################################
-# EVALUATING POLICY
+# EVALUATING PERFORMANCE
+
+mutable struct SaveBestModel
+    file_path
+    num_trajectories
+    best_return
+    mean_returns
+    std_returns
+    function SaveBestModel(root_dir, num_trajectories, filename = "best_model.bson")
+        if !isdir(root_dir)
+            mkpath(root_dir)
+        end
+
+        file_path = joinpath(root_dir, filename)
+        mean_returns = []
+        std_returns = []
+        new(file_path, num_trajectories, -Inf, mean_returns, std_returns)
+    end
+end
+
+function save_model(s::SaveBestModel, policy)
+    @save s.file_path policy
+end
+
+function (s::SaveBestModel)(policy, wrapper)
+    ret, dev = average_normalized_returns(policy, wrapper, s.num_trajectories)
+    if ret > s.best_return
+        s.best_return = ret
+        @printf "\nNEW BEST RETURN : %1.4f\n" ret
+        println("SAVING MODEL AT : " * s.file_path * "\n\n")
+        save_model(s, policy)
+    end
+
+    @printf "RET = %1.4f\tDEV = %1.4f\n" ret dev
+    push!(s.mean_returns, ret)
+    push!(s.std_returns, dev)
+end
+
+function single_trajectory_normalized_return(policy, wrapper)
+    env = wrapper.env
+    maxreturn = env.current_score - env.opt_score
+    if maxreturn == 0
+        return 1.0
+    else
+        ret = PPO.single_trajectory_return(policy, wrapper)
+        return ret / maxreturn
+    end
+end
+
+function average_normalized_returns(policy, wrapper, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = single_trajectory_normalized_return(policy, wrapper)
+    end
+    return Flux.mean(ret), Flux.std(ret)
+end
+
 function best_single_trajectory_return(policy, wrapper)
     env = wrapper.env
 

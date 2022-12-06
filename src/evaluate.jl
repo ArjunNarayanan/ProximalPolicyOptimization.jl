@@ -5,6 +5,7 @@ function single_trajectory_return(policy, env)
     while !done
         probs = action_probabilities(policy, state(env))
         action = rand(Categorical(probs))
+        @assert probs[action] > 0.0
 
         step!(env, action)
 
