@@ -36,7 +36,7 @@ function rollouts(wrapper, policy; numtrials = 1000)
 end
 
 poly_degree = 10
-max_actions = 20
+max_actions = 30
 
 discount = 1.0
 epsilon = 0.05
@@ -44,47 +44,23 @@ batch_size = 10
 episodes_per_iteration = 20
 num_epochs = 10
 num_iter = 1000
-quad_alg = "matching"
+quad_alg = "catmull-clark"
 
 wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg = quad_alg)
 
+
 # using BSON: @load, @save
 # @load "test/output/catmull-clark-policy-l4.bson" policy
-counter = 1
+
 
 PPO.reset!(wrapper)
-smooth_wrapper!(wrapper)
-fig = plot_wrapper(wrapper)
-fig.tight_layout()
-filename = "test/output/figures/mm-initial-"*string(counter)*".png"
-fig.savefig(filename)
-counter += 1
+plot_trajectory(policy, wrapper, "test/output/figures/rollouts/rollout-10/")
 
-# new_wrapper = best_state_in_rollout(wrapper, policy)
-# ret = new_wrapper.env.initial_score - new_wrapper.env.current_score
-# opt_ret = new_wrapper.env.initial_score - new_wrapper.env.opt_score
-# normalized_ret = ret/opt_ret
 
-# smooth_wrapper!(new_wrapper)
-# fig = plot_wrapper(new_wrapper)
-
-# filename = "test/output/figures/cc-final-"*string(counter)*".png"
-# fig.savefig(filename)
-# counter += 1
-
+# ret, dev = average_normalized_returns(wrapper, policy, 100)
 
 # policy = SimplePolicy.Policy(216, 128, 2, 4)
 # optimizer = ADAM(1e-4)
-
-
-
-# using BSON: @load, @save
-# @save "test/output/catmull-clark-policy-l4.bson" policy
-# @load "test/output/poly-30-policy.bson" policy
-
-# ret, dev = evaluator(policy,wrapper)
-
-# ret, dev = average_normalized_returns(wrapper, policy, 100)
 
 # ret, dev = PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, 
 # discount, epsilon, batch_size, num_epochs, num_iter, evaluator)

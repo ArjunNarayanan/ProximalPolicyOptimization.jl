@@ -12,7 +12,8 @@ PQ = PlotQuadMesh
 
 include("policy.jl")
 
-
+#####################################################################################################################
+# GENERATING AND MANIPULATING ENVIRONMENT STATE
 struct StateData
     vertex_score::Any
     action_mask
@@ -44,9 +45,10 @@ end
 
 function PPO.state(wrapper)
     env = wrapper.env
+    template = QM.make_level4_template(env.mesh)
 
-    vs = val_or_missing(env.vertex_score, env.template, 0)
-    vd = val_or_missing(env.mesh.degree, env.template, 0)
+    vs = val_or_missing(env.vertex_score, template, 0)
+    vd = val_or_missing(env.mesh.degree, template, 0)
     matrix = vcat(vs, vd)
 
     am = action_mask(env.mesh.active_quad)
@@ -55,7 +57,11 @@ function PPO.state(wrapper)
 
     return s
 end
+#####################################################################################################################
 
+
+#####################################################################################################################
+# EVALUATING POLICY
 function PPO.action_probabilities(policy, state)
     vertex_score, action_mask = state.vertex_score, state.action_mask
 
@@ -71,7 +77,11 @@ function PPO.batch_action_probabilities(policy, state)
     probs = softmax(logits, dims=1)
     return probs
 end
+#####################################################################################################################
 
+
+#####################################################################################################################
+# STEPPING THE ENVIRONMENT
 function PPO.reward(wrapper)
     env = wrapper.env
     return env.reward
@@ -144,7 +154,7 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward=-4)
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
     @assert type in (1, 2, 3, 4) "Expected action type in {1,2,3,4,5} got type = $type"
     @assert edge in (1, 2, 3, 4) "Expected edge in {1,2,3,4} got edge = $edge"
-    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
+    # @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
 
     if type == 1
         QM.step_left_flip!(env, quad, edge, no_action_reward=no_action_reward)
@@ -171,8 +181,12 @@ function PPO.step!(wrapper, action_index; no_action_reward=-4)
     quad, edge, type = index_to_action(action_index)
     PPO.step!(wrapper, quad, edge, type, no_action_reward)
 end
+#####################################################################################################################
 
-function plot_mesh(mesh; elem_numbers=false, internal_order=false, node_numbers=false)
+
+#####################################################################################################################
+# PLOTTING STUFF
+function plot_mesh(mesh)
     mesh = deepcopy(mesh)
     QM.reindex_quads!(mesh)
     QM.reindex_vertices!(mesh)
@@ -184,31 +198,70 @@ function plot_mesh(mesh; elem_numbers=false, internal_order=false, node_numbers=
     return fig
 end
 
-function plot_env(env; number_elements=false, internal_order=false, vertex_score=true)
+function plot_env(env)
     env = deepcopy(env)
 
     QM.reindex_game_env!(env)
     mesh = env.mesh
-    vs = vertex_score ? QM.active_vertex_score(env) : []
+    vs = QM.active_vertex_score(env)
 
     fig = PQ.plot_mesh(
         QM.active_vertex_coordinates(mesh),
         QM.active_quad_connectivity(mesh),
         vertex_score=vs,
-        number_elements=number_elements,
-        internal_order=internal_order
     )
     return fig
 end
 
-function plot_wrapper(wrapper; number_elements=false, internal_order=false, vertex_score=true)
-    return plot_env(wrapper.env, number_elements=number_elements, internal_order=internal_order, vertex_score=vertex_score)
+function plot_wrapper(wrapper, filename = ""; smooth_iterations = 5)
+    smooth_wrapper!(wrapper, smooth_iterations)
+
+    fig = plot_env(wrapper.env)
+
+    if length(filename) > 0
+        fig.tight_layout()
+        fig.savefig(filename)
+    end
+
+    return fig
 end
 
-function smooth_wrapper!(wrapper)
-    QM.averagesmoothing!(wrapper.env.mesh)
+function smooth_wrapper!(wrapper, num_iterations = 1)
+    for iteration in 1:num_iterations
+        QM.averagesmoothing!(wrapper.env.mesh)
+    end
 end
 
+function plot_trajectory(policy, wrapper, root_directory)
+    if !isdir(root_directory)
+        mkpath(root_directory)
+    end
+
+    fig_name = "figure-" * lpad(0, 3, "0") * ".png"
+    filename = joinpath(root_directory, fig_name)
+    plot_wrapper(wrapper, filename)
+
+    fig_index = 1
+    done = PPO.is_terminal(wrapper)
+    while !done 
+        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+        action = rand(Categorical(probs))
+
+        PPO.step!(wrapper, action)
+        
+        fig_name = "figure-" * lpad(fig_index, 3, "0") * ".png"
+        filename = joinpath(root_directory, fig_name)
+        plot_wrapper(wrapper, filename)
+        fig_index += 1
+
+        done = PPO.is_terminal(wrapper)
+    end
+end
+#####################################################################################################################
+
+
+#####################################################################################################################
+# EVALUATING POLICY
 function best_single_trajectory_return(wrapper, policy)
     env = wrapper.env
 
@@ -330,3 +383,4 @@ function moving_average(vector, window_size=5)
     end
     return smoothed
 end
+#####################################################################################################################
