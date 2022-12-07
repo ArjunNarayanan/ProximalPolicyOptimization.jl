@@ -95,7 +95,7 @@ end
 
 function PPO.state(wrapper)
     env = wrapper.env
-    template = make_template(env.mesh)
+    template = TM.make_level4_template(env.mesh)
 
     vs = val_or_missing(env.vertex_score, template, 0)
     vd = val_or_missing(env.mesh.degrees, template, 0)
@@ -291,7 +291,7 @@ end
 
 function plot_trajectory(policy, wrapper, root_directory)
     if !isdir(root_directory)
-        mkdir(root_directory)
+        mkpath(root_directory)
     end
 
     fig_name = "figure-" * lpad(0, 3, "0") * ".png"
@@ -340,7 +340,8 @@ mutable struct SaveBestModel
 end
 
 function save_model(s::SaveBestModel, policy)
-    @save s.file_path policy
+    d = Dict("evaluator" => s, "policy" => policy)
+    @save s.file_path d
 end
 
 function (s::SaveBestModel)(policy, wrapper)
