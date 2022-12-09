@@ -81,7 +81,7 @@ function ppo_iterate!(
         rollouts = EpisodeData()
         collect_rollouts!(rollouts, env, policy, episodes_per_iteration)
 
-        prepare_state_data_for_batching(rollouts.state_data)
+        prepare_state_data_for_batching!(rollouts.state_data)
         compute_state_value!(rollouts, discount)
 
         ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration)

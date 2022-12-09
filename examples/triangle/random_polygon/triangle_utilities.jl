@@ -44,7 +44,7 @@ function pad_action_mask(action_mask_vector)
     return padded_action_mask
 end
 
-function PPO.prepare_state_data_for_batching(state_data_vector)
+function PPO.prepare_state_data_for_batching!(state_data_vector)
     vertex_score = [s.vertex_score for s in state_data_vector]
     action_mask = [s.action_mask for s in state_data_vector]
 
@@ -95,7 +95,8 @@ end
 
 function PPO.state(wrapper)
     env = wrapper.env
-    template = TM.make_level4_template(env.mesh)
+    template = TM.make_template(env.mesh)
+    # template = TM.make_level4_template(env.mesh)
 
     vs = val_or_missing(env.vertex_score, template, 0)
     vd = val_or_missing(env.mesh.degrees, template, 0)
@@ -265,13 +266,27 @@ function smooth_wrapper!(wrapper, niter = 1)
     end
 end
 
+function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
+    tpars = Dict(
+        :color => "black",
+        :horizontalalignment => "center",
+        :verticalalignment => "center",
+        :fontsize => fontsize,
+        :fontweight => "bold",
+    )
+
+    text = string(score)
+    ax.text(coords[1], coords[2], score; tpars...)
+end
+
 function plot_env(_env)
     env = deepcopy(_env)
     TM.reindex!(env)
 
     mesh = env.mesh
-    fig = MP.plot_mesh(TM.active_vertex_coordinates(mesh), TM.active_triangle_connectivity(mesh),
+    fig, ax = MP.plot_mesh(TM.active_vertex_coordinates(mesh), TM.active_triangle_connectivity(mesh),
         vertex_score=TM.active_vertex_score(env), vertex_size=20, fontsize=15)
+    plot_env_score!(ax, env.current_score)
 
     return fig
 end

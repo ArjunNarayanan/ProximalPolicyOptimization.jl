@@ -35,8 +35,7 @@ function rollouts(wrapper, policy; numtrials = 1000)
     return nonflips/numtrials
 end
 
-poly_degree = 10
-max_actions = 30
+
 
 discount = 1.0
 epsilon = 0.05
@@ -46,18 +45,18 @@ num_epochs = 10
 num_iter = 1000
 quad_alg = "catmull-clark"
 
+poly_degree = 10
+max_actions = 30
 wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg = quad_alg)
 
-
-# using BSON: @load, @save
-# @load "test/output/catmull-clark-policy-l4.bson" policy
-
-
-PPO.reset!(wrapper)
-plot_trajectory(policy, wrapper, "test/output/figures/rollouts/rollout-10/")
-
+using BSON
+d = BSON.load("test/output/catmull-clark-policy-l4.bson")
+policy = d[:policy]
 
 # ret, dev = average_normalized_returns(wrapper, policy, 100)
+
+PPO.reset!(wrapper)
+plot_trajectory(policy, wrapper, "test/output/figures/rollouts/rollout-4/")
 
 # policy = SimplePolicy.Policy(216, 128, 2, 4)
 # optimizer = ADAM(1e-4)

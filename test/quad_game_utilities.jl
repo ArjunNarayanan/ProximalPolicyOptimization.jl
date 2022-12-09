@@ -198,6 +198,19 @@ function plot_mesh(mesh)
     return fig
 end
 
+function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
+    tpars = Dict(
+        :color => "black",
+        :horizontalalignment => "center",
+        :verticalalignment => "center",
+        :fontsize => fontsize,
+        :fontweight => "bold",
+    )
+
+    text = string(score)
+    ax.text(coords[1], coords[2], score; tpars...)
+end
+
 function plot_env(env)
     env = deepcopy(env)
 
@@ -205,11 +218,13 @@ function plot_env(env)
     mesh = env.mesh
     vs = QM.active_vertex_score(env)
 
-    fig = PQ.plot_mesh(
+    fig, ax = PQ.plot_mesh(
         QM.active_vertex_coordinates(mesh),
         QM.active_quad_connectivity(mesh),
         vertex_score=vs,
     )
+    plot_env_score!(ax, env.current_score)
+
     return fig
 end
 
