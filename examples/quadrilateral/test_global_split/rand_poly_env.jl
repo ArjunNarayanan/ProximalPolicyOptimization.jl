@@ -15,15 +15,57 @@ function initialize_random_mesh(poly_degree, quad_alg)
     return mesh, d0
 end
 
+function can_global_split(v1, v2, vertex_score, mesh)
+    if !QM.vertex_on_boundary(mesh, v1) && 
+       !QM.vertex_on_boundary(mesh, v2) &&
+       vertex_score[v1] == +1 &&
+       vertex_score[v2] == -1
+
+        return true
+    else
+        return false
+    end
+end
+
+function update_vertex_score_for_global_split!(vertex_score, mesh)
+    num_quads = QM.quad_buffer(mesh)
+
+    for quad_idx in 1:num_quads
+        if QM.is_active_quad(mesh, quad_idx)
+            for vertex_idx in 1:4
+
+                v1 = QM.vertex(mesh, quad_idx, vertex_idx)
+                v2 = QM.vertex(mesh, quad_idx, QM.next(vertex_idx))
+                
+                if can_global_split(v1, v2, vertex_score, mesh)
+                    vertex_score[v1] = 0
+                    vertex_score[v2] = 0
+                end
+            end
+        end
+    end
+end
+
+function global_score(_vertex_score, mesh)
+    vertex_score = copy(_vertex_score)
+    update_vertex_score_for_global_split!(vertex_score, mesh)
+    score = sum(abs.(vertex_score))
+    return score
+end
+
 mutable struct RandPolyEnv
     poly_degree
     quad_alg
     max_actions::Any
     env::Any
-    function RandPolyEnv(poly_degree, max_actions; quad_alg = "matching")
+    current_score
+    reward
+    function RandPolyEnv(poly_degree, max_actions, quad_alg)
         mesh, d0 = initialize_random_mesh(poly_degree, quad_alg)
-        env = QM.GameEnv(deepcopy(mesh), deepcopy(d0), max_actions)
-        new(poly_degree, quad_alg, max_actions, env)
+        env = QM.GameEnv(mesh, d0, max_actions)
+        score = global_score(env.vertex_score, env.mesh)
+        reward = 0
+        new(poly_degree, quad_alg, max_actions, env, score, reward)
     end
 end
 
@@ -35,4 +77,6 @@ end
 function PPO.reset!(wrapper)
     mesh, d0 = initialize_random_mesh(wrapper.poly_degree, wrapper.quad_alg)
     wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
+    wrapper.current_score = global_score(wrapper.env.vertex_score, wrapper.env.mesh)
+    wrapper.reward = 0
 end

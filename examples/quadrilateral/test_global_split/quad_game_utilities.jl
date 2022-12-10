@@ -4,6 +4,8 @@ using RandomQuadMesh
 using QuadMeshGame
 using ProximalPolicyOptimization
 using Distributions: Categorical
+using BSON: @save
+using Printf
 
 RQ = RandomQuadMesh
 QM = QuadMeshGame
@@ -48,12 +50,12 @@ function PPO.state(wrapper)
     template = QM.make_level4_template(env.mesh)
 
     vs = val_or_missing(env.vertex_score, template, 0)
-    vd = val_or_missing(env.mesh.degree, template, 0)
-    matrix = vcat(vs, vd)
-
+    # vd = val_or_missing(env.mesh.degree, template, 0)
+    
+    # matrix = vcat(vs, vd)
     am = action_mask(env.mesh.active_quad)
 
-    s = StateData(matrix, am)
+    s = StateData(vs, am)
 
     return s
 end
@@ -82,41 +84,8 @@ end
 
 #####################################################################################################################
 # STEPPING THE ENVIRONMENT
-
-function can_global_split(v1, v2, vertex_score, mesh)
-    if !QM.vertex_on_boundary(mesh, v1) && 
-       !QM.vertex_on_boundary(mesh, v2) &&
-       vertex_score[v1] == +1 &&
-       vertex_score[v2] == -1
-
-        return true
-    else
-        return false
-    end
-end
-
-function update_vertex_score_for_global_split!(vertex_score, mesh)
-    num_quads = QM.quad_buffer(mesh)
-
-    for quad_idx in 1:num_quads
-        if QM.is_active_quad(mesh, quad_idx)
-            for vertex_idx in 1:4
-
-                v1 = QM.vertex(mesh, quad_idx, vertex_idx)
-                v2 = QM.vertex(mesh, quad_idx, QM.next(vertex_idx))
-                
-                if can_global_split(v1, v2, vertex_score, mesh)
-                    vertex_score[v1] = 0
-                    vertex_score[v2] = 0
-                end
-            end
-        end
-    end
-end
-
 function PPO.reward(wrapper)
-    env = wrapper.env
-    return env.reward
+    return wrapper.reward
 end
 
 function PPO.is_terminal(wrapper)
@@ -182,6 +151,8 @@ end
 
 function PPO.step!(wrapper, quad, edge, type, no_action_reward=-4)
     env = wrapper.env
+    previous_score = wrapper.current_score
+    success = false
 
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
     @assert type in (1, 2, 3, 4) "Expected action type in {1,2,3,4,5} got type = $type"
@@ -189,17 +160,21 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward=-4)
     # @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
 
     if type == 1
-        QM.step_left_flip!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_left_flip!(env, quad, edge, no_action_reward=no_action_reward)
     elseif type == 2
-        QM.step_right_flip!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_right_flip!(env, quad, edge, no_action_reward=no_action_reward)
     elseif type == 3
-        QM.step_split!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_split!(env, quad, edge, no_action_reward=no_action_reward)
     elseif type == 4
-        QM.step_collapse!(env, quad, edge, no_action_reward=no_action_reward)
-        # elseif type == 5
-        #     QM.step_nothing!(env)
+        success = QM.step_collapse!(env, quad, edge, no_action_reward=no_action_reward)
     else
         error("Unexpected action type $type")
+    end
+
+    if success
+        wrapper.reward = previous_score - wrapper.current_score
+    else
+        wrapper.reward = no_action_reward
     end
 
 end
@@ -243,7 +218,7 @@ function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
     ax.text(coords[1], coords[2], score; tpars...)
 end
 
-function plot_env(env)
+function plot_env(env, score)
     env = deepcopy(env)
 
     QM.reindex_game_env!(env)
@@ -255,7 +230,7 @@ function plot_env(env)
         QM.active_quad_connectivity(mesh),
         vertex_score=vs,
     )
-    plot_env_score!(ax, env.current_score)
+    plot_env_score!(ax, score)
 
     return fig
 end
@@ -263,7 +238,7 @@ end
 function plot_wrapper(wrapper, filename = ""; smooth_iterations = 5)
     smooth_wrapper!(wrapper, smooth_iterations)
 
-    fig = plot_env(wrapper.env)
+    fig = plot_env(wrapper.env, wrapper.current_score)
 
     if length(filename) > 0
         fig.tight_layout()
@@ -308,25 +283,80 @@ end
 
 
 #####################################################################################################################
-# EVALUATING POLICY
-function best_single_trajectory_return(wrapper, policy)
-    env = wrapper.env
+# EVALUATING PERFORMANCE
+mutable struct SaveBestModel
+    file_path
+    num_trajectories
+    best_return
+    mean_returns
+    std_returns
+    function SaveBestModel(root_dir, num_trajectories, filename = "best_model.bson")
+        if !isdir(root_dir)
+            mkpath(root_dir)
+        end
 
+        file_path = joinpath(root_dir, filename)
+        mean_returns = []
+        std_returns = []
+        new(file_path, num_trajectories, -Inf, mean_returns, std_returns)
+    end
+end
+
+function save_model(s::SaveBestModel, policy)
+    d = Dict("evaluator" => s, "policy" => policy)
+    @save s.file_path d
+end
+
+function (s::SaveBestModel)(policy, wrapper)
+    ret, dev = average_normalized_returns(policy, wrapper, s.num_trajectories)
+    if ret > s.best_return
+        s.best_return = ret
+        @printf "\nNEW BEST RETURN : %1.4f\n" ret
+        println("SAVING MODEL AT : " * s.file_path * "\n\n")
+        save_model(s, policy)
+    end
+
+    @printf "RET = %1.4f\tDEV = %1.4f\n" ret dev
+    push!(s.mean_returns, ret)
+    push!(s.std_returns, dev)
+end
+
+function single_trajectory_normalized_return(policy, wrapper)
+    env = wrapper.env
+    maxreturn = env.current_score - env.opt_score
+    if maxreturn == 0
+        return 1.0
+    else
+        ret = PPO.single_trajectory_return(policy, wrapper)
+        return ret / maxreturn
+    end
+end
+
+function average_normalized_returns(policy, wrapper, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = single_trajectory_normalized_return(policy, wrapper)
+    end
+    return Flux.mean(ret), Flux.std(ret)
+end
+
+function best_single_trajectory_return(wrapper, policy)
     done = PPO.is_terminal(wrapper)
 
-    initial_score = env.current_score
-    minscore = initial_score
+    initial_score = wrapper.env.initial_score
+    minscore = wrapper.current_score
+
     while !done
         probs = PPO.action_probabilities(policy, PPO.state(wrapper))
         action = rand(Categorical(probs))
 
         PPO.step!(wrapper, action)
 
-        minscore = min(minscore, env.current_score)
+        minscore = min(minscore, wrapper.current_score)
         done = PPO.is_terminal(wrapper)
     end
     return initial_score - minscore
-
 end
 
 function average_best_returns(wrapper, policy, num_trajectories)
@@ -338,41 +368,28 @@ function average_best_returns(wrapper, policy, num_trajectories)
     return Flux.mean(ret), Flux.std(ret)
 end
 
-function single_trajectory_scores(wrapper, policy)
-    initial_score = wrapper.env.initial_score
-    scores = []
-    done = PPO.is_terminal(wrapper)
-
-    while !done
-        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
-        action = rand(Categorical(probs))
-
-        PPO.step!(wrapper, action)
-        push!(scores, initial_score - wrapper.env.current_score)
-        done = PPO.is_terminal(wrapper)
+function best_normalized_single_trajectory_return(policy, wrapper)
+    max_return = wrapper.env.current_score - wrapper.env.opt_score
+    if max_return == 0
+        return 1.0
+    else
+        ret = best_single_trajectory_return(policy, wrapper)
+        return ret/max_return
     end
-    return scores
 end
 
-function single_trajectory_return(wrapper, policy)
-    env = wrapper.env
-    ret = 0
-    done = PPO.is_terminal(wrapper)
-
-    while !done
-        probs = PPO.action_probabilities(policy, PPO.state(wrapper))
-        action = rand(Categorical(probs))
-
-        PPO.step!(wrapper, action)
-        done = PPO.is_terminal(wrapper)
-        ret += PPO.reward(wrapper)
+function average_normalized_best_returns(policy, wrapper, num_trajectories)
+    ret = zeros(num_trajectories)
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        ret[idx] = best_normalized_single_trajectory_return(policy, wrapper)
     end
-    return ret
+    return Flux.mean(ret), Flux.std(ret)
 end
 
 function best_state_in_rollout(wrapper, policy)
-    wrappers = [deepcopy(wrapper)]
-    scores = [wrapper.env.current_score - wrapper.env.opt_score]
+    best_wrapper = deepcopy(wrapper)
+    minscore = wrapper.current_score
     done = PPO.is_terminal(wrapper)
 
     while !done
@@ -382,52 +399,12 @@ function best_state_in_rollout(wrapper, policy)
         PPO.step!(wrapper, action)
         done = PPO.is_terminal(wrapper)
 
-        push!(wrappers, deepcopy(wrapper))
-        push!(scores, wrapper.env.current_score - wrapper.env.opt_score)
+        if wrapper.current_score < minscore 
+            minscore = wrapper.current_score
+            best_wrapper = deepcopy(wrapper)
+        end
     end
-    idx = argmin(scores)
-    return wrappers[idx]
-end
 
-function average_returns(wrapper, policy, num_trajectories)
-    ret = zeros(num_trajectories)
-    for idx = 1:num_trajectories
-        PPO.reset!(wrapper)
-        ret[idx] = single_trajectory_return(wrapper, policy)
-    end
-    return Flux.mean(ret), Flux.std(ret)
-end
-
-function single_trajectory_normalized_return(wrapper, policy)
-    env = wrapper.env
-    maxreturn = env.current_score - env.opt_score
-    if maxreturn == 0
-        return 1.0
-    else
-        ret = best_single_trajectory_return(wrapper, policy)
-        return ret / maxreturn
-    end
-end
-
-function average_normalized_returns(wrapper, policy, num_trajectories)
-    ret = zeros(num_trajectories)
-    for idx = 1:num_trajectories
-        PPO.reset!(wrapper)
-        ret[idx] = single_trajectory_normalized_return(wrapper, policy)
-    end
-    return Flux.mean(ret), Flux.std(ret)
-end
-
-function moving_average(vector, window_size=5)
-    half_window = div(window_size, 2)
-    smoothed = similar(vector)
-    N = length(vector)
-    for (idx, val) in enumerate(vector)
-        start = max(1, idx - half_window)
-        start = min(N - window_size + 1, start)
-        stop = start + window_size - 1
-        smoothed[idx] = sum(vector[start:stop]) / window_size
-    end
-    return smoothed
+    return best_wrapper
 end
 #####################################################################################################################
