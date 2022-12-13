@@ -50,12 +50,12 @@ function PPO.state(wrapper)
     template = QM.make_level4_template(env.mesh)
 
     vs = val_or_missing(env.vertex_score, template, 0)
-    # vd = val_or_missing(env.mesh.degree, template, 0)
+    vd = val_or_missing(env.mesh.degree, template, 0)
     
-    # matrix = vcat(vs, vd)
+    matrix = vcat(vs, vd)
     am = action_mask(env.mesh.active_quad)
 
-    s = StateData(vs, am)
+    s = StateData(matrix, am)
 
     return s
 end
@@ -89,8 +89,8 @@ function PPO.reward(wrapper)
 end
 
 function PPO.is_terminal(wrapper)
-    env = wrapper.env
-    return env.is_terminated
+    flag = wrapper.env.num_actions >= wrapper.env.max_actions || wrapper.current_score <= wrapper.env.opt_score
+    return flag
 end
 
 function index_to_action(index; actions_per_edge=4)
@@ -172,6 +172,7 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward=-4)
     end
 
     if success
+        update_env_score_after_step!(wrapper)
         wrapper.reward = previous_score - wrapper.current_score
     else
         wrapper.reward = no_action_reward
@@ -214,7 +215,6 @@ function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
         :fontweight => "bold",
     )
 
-    text = string(score)
     ax.text(coords[1], coords[2], score; tpars...)
 end
 
@@ -230,15 +230,19 @@ function plot_env(env, score)
         QM.active_quad_connectivity(mesh),
         vertex_score=vs,
     )
+    
     plot_env_score!(ax, score)
 
-    return fig
+    return fig, ax
 end
 
 function plot_wrapper(wrapper, filename = ""; smooth_iterations = 5)
     smooth_wrapper!(wrapper, smooth_iterations)
 
-    fig = plot_env(wrapper.env, wrapper.current_score)
+    text = string(wrapper.current_score) * " / " * string(wrapper.env.opt_score)
+    fig, ax = plot_env(wrapper.env, text)
+    ax.set_xlim(-1, 1)
+    ax.set_ylim(-1, 1)
 
     if length(filename) > 0
         fig.tight_layout()
@@ -279,6 +283,24 @@ function plot_trajectory(policy, wrapper, root_directory)
         done = PPO.is_terminal(wrapper)
     end
 end
+
+function plot_returns(ret, lower_fill, upper_fill)
+    fig, ax = subplots()
+    ax.plot(ret)
+    ax.fill_between(1:length(ret), lower_fill, upper_fill, alpha = 0.2, facecolor = "blue")
+    ax.grid()
+    ax.set_xlabel("PPO Iterations")
+    ax.set_ylabel("Normalized returns")
+    return fig, ax
+end
+
+function plot_normalized_returns(ret, dev)
+    lower = ret - dev
+    upper = ret + dev
+    upper[upper .> 1.0] .= 1.0
+    return plot_returns(ret, lower, upper)
+end
+
 #####################################################################################################################
 
 
@@ -341,7 +363,7 @@ function average_normalized_returns(policy, wrapper, num_trajectories)
     return Flux.mean(ret), Flux.std(ret)
 end
 
-function best_single_trajectory_return(wrapper, policy)
+function best_single_trajectory_return(policy, wrapper)
     done = PPO.is_terminal(wrapper)
 
     initial_score = wrapper.env.initial_score
@@ -359,7 +381,7 @@ function best_single_trajectory_return(wrapper, policy)
     return initial_score - minscore
 end
 
-function average_best_returns(wrapper, policy, num_trajectories)
+function average_best_returns(policy, wrapper, num_trajectories)
     ret = zeros(num_trajectories)
     for idx = 1:num_trajectories
         PPO.reset!(wrapper)

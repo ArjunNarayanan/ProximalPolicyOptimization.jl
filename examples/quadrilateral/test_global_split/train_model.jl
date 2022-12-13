@@ -7,7 +7,7 @@ epsilon = 0.05
 minibatch_size = 32
 episodes_per_iteration = 20
 num_epochs = 10
-num_iter = 200
+num_iter = 500
 quad_alg = "catmull-clark"
 
 num_evaluation_trajectories = 100
@@ -18,23 +18,18 @@ poly_degree = 10
 max_actions = 30
 wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg)
 
-policy = SimplePolicy.Policy(108, 128, 2, 4)
+# policy = SimplePolicy.Policy(216, 128, 2, 4)
 
-optimizer = ADAM(1e-4)
-ret, dev = PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, minibatch_size, num_iter, evaluator)
+# optimizer = ADAM(1e-4)
+# PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, minibatch_size, num_iter, evaluator)
 
 
 # using PyPlot
-# fig, ax = subplots()
-# ax.plot(ret)
-# ax.grid()
-# ax.set_xlabel("PPO Iterations")
-# ax.set_ylabel("Average returns")
-# fig.savefig("test/output/figures/catmull-clark-training-returns.png")
+# fig, ax = plot_normalized_returns(evaluator.mean_returns, evaluator.std_returns)
+# ax.set_title("Average returns vs training iterations for 4-level template")
+# fig.savefig("examples/quadrilateral/test_global_split/output/level4/figures/learning_curve.png")
+ret, dev = average_normalized_best_returns(policy, wrapper, 100)
 
-
-# using BSON: @save
-# @save "test/output/poly-30-policy.bson" policy
-# ret, dev = average_normalized_returns(wrapper, policy, 100)
-# PPO.reset!(wrapper)
-# plot_trajectory(policy, wrapper, "test/output/figures/rollouts/rollout-4/")
+PPO.reset!(wrapper)
+output_dir = "examples/quadrilateral/test_global_split/output/level4/figures/rollout-5/"
+plot_trajectory(policy, wrapper, output_dir)

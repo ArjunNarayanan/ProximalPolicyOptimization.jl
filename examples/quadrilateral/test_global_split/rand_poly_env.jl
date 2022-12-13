@@ -16,8 +16,7 @@ function initialize_random_mesh(poly_degree, quad_alg)
 end
 
 function can_global_split(v1, v2, vertex_score, mesh)
-    if !QM.vertex_on_boundary(mesh, v1) && 
-       !QM.vertex_on_boundary(mesh, v2) &&
+    if !QM.vertex_on_boundary(mesh, v2) &&
        vertex_score[v1] == +1 &&
        vertex_score[v2] == -1
 
@@ -79,4 +78,8 @@ function PPO.reset!(wrapper)
     wrapper.env = QM.GameEnv(mesh, d0, wrapper.max_actions)
     wrapper.current_score = global_score(wrapper.env.vertex_score, wrapper.env.mesh)
     wrapper.reward = 0
+end
+
+function update_env_score_after_step!(wrapper)
+    wrapper.current_score = global_score(wrapper.env.vertex_score, wrapper.env.mesh)
 end
