@@ -14,6 +14,8 @@ PQ = PlotQuadMesh
 
 include("policy.jl")
 
+const NUM_ACTIONS_PER_EDGE = 4
+
 #####################################################################################################################
 # GENERATING AND MANIPULATING ENVIRONMENT STATE
 struct StateData
@@ -38,9 +40,10 @@ function val_or_missing(vector, template, missing_val)
     return [t == 0 ? missing_val : vector[t] for t in template]
 end
 
-function action_mask(active_quad; actions_per_edge=4)
-    actions_per_quad = 4 * actions_per_edge
-    requires_mask = repeat(.!active_quad', inner=(actions_per_quad, 1))
+function action_mask(template, actions_per_edge)
+    requires_mask = mapslices(x -> all(x .== 0), template, dims=1)
+    requires_mask = repeat(requires_mask, inner=(actions_per_edge, 1))
+    requires_mask = vec(requires_mask)
     mask = vec([r ? -Inf32 : 0.0f0 for r in requires_mask])
     return mask
 end
@@ -52,8 +55,11 @@ function PPO.state(wrapper)
     vs = val_or_missing(env.vertex_score, template, 0)
     vd = val_or_missing(env.mesh.degree, template, 0)
     
+    # vdist = val_or_missing(wrapper.distance_to_boundary, template, 0)
+    # vdist = vdist .- vdist[1,:]'
+    
     matrix = vcat(vs, vd)
-    am = action_mask(env.mesh.active_quad)
+    am = action_mask(template, NUM_ACTIONS_PER_EDGE)
 
     s = StateData(matrix, am)
 
@@ -89,8 +95,7 @@ function PPO.reward(wrapper)
 end
 
 function PPO.is_terminal(wrapper)
-    flag = wrapper.env.num_actions >= wrapper.env.max_actions || wrapper.current_score <= wrapper.env.opt_score
-    return flag
+    return wrapper.is_terminated
 end
 
 function index_to_action(index; actions_per_edge=4)
@@ -110,81 +115,49 @@ function action_space_size(env; actions_per_edge=4)
     return nq * 4 * actions_per_edge
 end
 
-function all_active_vertices(mesh)
-    flag = true
-    for vertex in mesh.connectivity
-        if !((vertex == 0) || (QM.is_active_vertex(mesh, vertex)))
-            flag = false
-        end
-    end
-    return flag
-end
-
-function no_quad_self_reference(mesh)
-    flag = true
-    for quad in 1:QM.quad_buffer(mesh)
-        if QM.is_active_quad(mesh, quad)
-            nbrs = mesh.q2q[:, quad]
-            if any(quad .== nbrs)
-                flag = false
-            end
-        end
-    end
-    return flag
-end
-
-function all_active_quad_or_boundary(mesh)
-    flag = true
-    for quad in mesh.q2q
-        if !(QM.is_active_quad_or_boundary(mesh, quad))
-            flag = false
-        end
-    end
-    return flag
-end
-
-function check_valid_state(wrapper)
-    mesh = wrapper.env.mesh
-    flag = all_active_vertices(mesh) && no_quad_self_reference(mesh) && all_active_quad_or_boundary(mesh)
-    return flag
-end
-
-function PPO.step!(wrapper, quad, edge, type, no_action_reward=-4)
+function PPO.step!(wrapper, quad, edge, type, no_action_reward=0)
     env = wrapper.env
     previous_score = wrapper.current_score
     success = false
 
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
-    @assert type in (1, 2, 3, 4) "Expected action type in {1,2,3,4,5} got type = $type"
+    @assert type in (1, 2, 3, 4) "Expected action type in {1,2,3,4} got type = $type"
     @assert edge in (1, 2, 3, 4) "Expected edge in {1,2,3,4} got edge = $edge"
     # @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
 
     if type == 1
-        success = QM.step_left_flip!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_left_flip!(env, quad, edge)
     elseif type == 2
-        success = QM.step_right_flip!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_right_flip!(env, quad, edge)
     elseif type == 3
-        success = QM.step_split!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_split!(env, quad, edge)
     elseif type == 4
-        success = QM.step_collapse!(env, quad, edge, no_action_reward=no_action_reward)
+        success = QM.step_collapse!(env, quad, edge)
     else
         error("Unexpected action type $type")
     end
 
     if success
-        update_env_score_after_step!(wrapper)
+        wrapper.current_score = global_score(wrapper.env.vertex_score)
+        wrapper.num_actions += 1
         wrapper.reward = previous_score - wrapper.current_score
     else
         wrapper.reward = no_action_reward
     end
 
+    wrapper.is_terminated = check_terminated(
+        wrapper.current_score,
+        wrapper.opt_score,
+        wrapper.num_actions,
+        wrapper.max_actions
+    )
 end
 
 function PPO.step!(wrapper, action_index; no_action_reward=-4)
     env = wrapper.env
     na = action_space_size(env)
     @assert 0 < action_index <= na "Expected 0 < action_index <= $na, got action_index = $action_index"
-    @assert !env.is_terminated "Attempting to step in terminated environment with action $action_index"
+    @assert !wrapper.is_terminated "Attempting to step in terminated environment with action $action_index"
 
     quad, edge, type = index_to_action(action_index)
     PPO.step!(wrapper, quad, edge, type, no_action_reward)
@@ -239,7 +212,7 @@ end
 function plot_wrapper(wrapper, filename = ""; smooth_iterations = 5)
     smooth_wrapper!(wrapper, smooth_iterations)
 
-    text = string(wrapper.current_score) * " / " * string(wrapper.env.opt_score)
+    text = string(wrapper.current_score) * " / " * string(wrapper.opt_score)
     fig, ax = plot_env(wrapper.env, text)
     ax.set_xlim(-1, 1)
     ax.set_ylim(-1, 1)
@@ -344,8 +317,7 @@ function (s::SaveBestModel)(policy, wrapper)
 end
 
 function single_trajectory_normalized_return(policy, wrapper)
-    env = wrapper.env
-    maxreturn = env.current_score - env.opt_score
+    maxreturn = wrapper.current_score - wrapper.opt_score
     if maxreturn == 0
         return 1.0
     else

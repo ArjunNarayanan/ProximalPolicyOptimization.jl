@@ -3,7 +3,7 @@ function initialize_random_mesh(poly_degree, quad_alg)
     angles = QM.polygon_interior_angles(boundary_pts)
     bdry_d0 = QM.desired_degree.(angles)
 
-    mesh = RQ.quad_mesh(boundary_pts, algorithm = quad_alg)
+    mesh = RQ.quad_mesh(boundary_pts, algorithm=quad_alg)
     mesh = QM.QuadMesh(mesh.p, mesh.t, mesh.t2t, mesh.t2n)
 
     mask = .![trues(poly_degree); falses(mesh.num_vertices - poly_degree)]
@@ -35,7 +35,7 @@ function update_vertex_score_for_global_split!(vertex_score, mesh)
 
                 v1 = QM.vertex(mesh, quad_idx, vertex_idx)
                 v2 = QM.vertex(mesh, quad_idx, QM.next(vertex_idx))
-                
+
                 if can_global_split(v1, v2, vertex_score, mesh)
                     vertex_score[v1] = 0
                     vertex_score[v2] = 0
@@ -55,13 +55,16 @@ end
 mutable struct RandPolyEnv
     poly_degree
     quad_alg
+    num_actions
     max_actions::Any
     env::Any
     current_score
+    opt_score
+    is_terminated
     reward
     function RandPolyEnv(poly_degree, max_actions, quad_alg)
         mesh, d0 = initialize_random_mesh(poly_degree, quad_alg)
-        env = QM.GameEnv(mesh, d0, max_actions)
+        env = QM.GameEnv(mesh, d0)
         score = global_score(env.vertex_score, env.mesh)
         reward = 0
         new(poly_degree, quad_alg, max_actions, env, score, reward)
