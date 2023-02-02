@@ -9,26 +9,18 @@ episodes_per_iteration = 20
 num_epochs = 10
 num_iter = 500
 quad_alg = "catmull-clark"
+root_dir = "/Users/arjun/.julia/dev/ProximalPolicyOptimization/examples/quadrilateral/global_split/"
 
 num_evaluation_trajectories = 100
-# output_dir = "examples/quadrilateral/boundary_split/output"
-# evaluator = SaveBestModel(output_dir, num_evaluation_trajectories)
+output_dir = joinpath(root_dir, "output")
+evaluator = SaveBestModel(output_dir, num_evaluation_trajectories)
 
 poly_degree = 10
 max_actions = 20
 wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg)
 
-# PPO.reset!(wrapper)
-# plot_wrapper(wrapper)
-
-# policy = SimplePolicy.Policy(216, 128, 2, 5)
-using BSON
+policy = SimplePolicy.Policy(216, 128, 1, 5)
 optimizer = ADAM(1e-4)
-
-data = BSON.load("/Users/arjun/.julia/dev/ProximalPolicyOptimization/examples/quadrilateral/template_action_mask/level4/best_model.bson")
-policy = data[:d]["policy"]
-evaluator = data[:d]["evaluator"]
-evaluator.file_path = "/Users/arjun/.julia/dev/ProximalPolicyOptimization/examples/quadrilateral/boundary_split/output/best_model.bson"
 
 PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, minibatch_size, num_iter, evaluator)
 

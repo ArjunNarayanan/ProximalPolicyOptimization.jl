@@ -28,6 +28,32 @@ function Base.show(io::IO, s::StateData)
     println(io, "StateData")
 end
 
+function pad_vertex_scores(vertex_scores_vector)
+    num_half_edges = [size(vs, 2) for vs in vertex_scores_vector]
+    max_num_half_edges = maximum(num_half_edges)
+    num_new_cols = max_num_half_edges .- num_half_edges
+    padded_vertex_scores = [QM.zero_pad_matrix_cols(vs, nc) for (vs, nc) in zip(vertex_scores_vector, num_new_cols)]
+    return padded_vertex_scores
+end
+
+function pad_action_mask(action_mask_vector)
+    num_actions = length.(action_mask_vector)
+    max_num_actions = maximum(num_actions)
+    num_new_actions = max_num_actions .- num_actions
+    padded_action_mask = [QM.pad_vector(am, nr, -Inf32) for (am, nr) in zip(action_mask_vector, num_new_actions)]
+    return padded_action_mask
+end
+
+function PPO.prepare_state_data_for_batching!(state_data_vector)
+    vertex_score = [s.vertex_score for s in state_data_vector]
+    action_mask = [s.action_mask for s in state_data_vector]
+
+    padded_vertex_scores = pad_vertex_scores(vertex_score)
+    padded_action_mask = pad_action_mask(action_mask)
+
+    state_data_vector .= [StateData(vs, am) for (vs, am) in zip(padded_vertex_scores, padded_action_mask)]
+end
+
 function PPO.batch_state(state_data_vector)
     vs = [s.vertex_score for s in state_data_vector]
     am = [s.action_mask for s in state_data_vector]
@@ -146,7 +172,7 @@ function PPO.step!(wrapper, quad, edge, type)
     elseif type == 4
         success = QM.step_collapse!(env, quad, edge)
     elseif type == 5
-        success = QM.step_boundary_split!(env, quad, edge)
+        success = QM.step_global_split_without_loops!(env, quad, edge, 50)
     else
         error("Unexpected action type $type")
     end
@@ -157,6 +183,7 @@ function PPO.step!(wrapper, quad, edge, type)
         wrapper.reward = previous_score - wrapper.current_score
     else
         wrapper.reward = NO_ACTION_REWARD
+        wrapper.num_actions += 1
     end
 
     wrapper.is_terminated = check_terminated(
