@@ -14,7 +14,8 @@ PQ = PlotQuadMesh
 
 include("../policy.jl")
 
-const NUM_ACTIONS_PER_EDGE = 4
+const NUM_ACTIONS_PER_EDGE = 5
+const NO_ACTION_REWARD = 0
 
 #####################################################################################################################
 # GENERATING AND MANIPULATING ENVIRONMENT STATE
@@ -81,7 +82,7 @@ end
 
 function PPO.batch_action_probabilities(policy, state)
     @assert policy.num_output_channels == NUM_ACTIONS_PER_EDGE
-    
+
     vertex_score, action_mask = state.vertex_score, state.action_mask
     nf, nq, nb = size(vertex_score)
     logits = reshape(policy(vertex_score), :, nb) + action_mask
@@ -118,15 +119,23 @@ function action_space_size(env)
     return nq * 4 * NUM_ACTIONS_PER_EDGE
 end
 
-function PPO.step!(wrapper, quad, edge, type, no_action_reward=0)
+function assert_valid_mesh(mesh)
+    @assert QM.all_active_vertices(mesh) "Found inactive vertices in mesh connectivity"
+    @assert QM.no_quad_self_reference(mesh) "Found self-referencing quads in mesh q2q"
+    @assert QM.all_active_quad_or_boundary(mesh) "Found inactive quads in mesh q2q"
+end
+
+function PPO.step!(wrapper, quad, edge, type)
     env = wrapper.env
     previous_score = wrapper.current_score
     success = false
 
     @assert QM.is_active_quad(env.mesh, quad) "Attempting to act on inactive quad $quad with action ($quad, $edge, $type)"
-    @assert type in (1, 2, 3, 4) "Expected action type in {1,2,3,4} got type = $type"
+    @assert type in 1:NUM_ACTIONS_PER_EDGE "Expected action type in {1,2,3,4} got type = $type"
     @assert edge in (1, 2, 3, 4) "Expected edge in {1,2,3,4} got edge = $edge"
-    # QM.assert_valid_mesh(env.mesh)
+    assert_valid_mesh(env.mesh)
+
+    # println("\tStepping : ", quad, edge, type)
 
     if type == 1
         success = QM.step_left_flip!(env, quad, edge)
@@ -136,6 +145,8 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward=0)
         success = QM.step_split!(env, quad, edge)
     elseif type == 4
         success = QM.step_collapse!(env, quad, edge)
+    elseif type == 5
+        success = QM.step_boundary_split!(env, quad, edge)
     else
         error("Unexpected action type $type")
     end
@@ -145,7 +156,7 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward=0)
         wrapper.num_actions += 1
         wrapper.reward = previous_score - wrapper.current_score
     else
-        wrapper.reward = no_action_reward
+        wrapper.reward = NO_ACTION_REWARD
     end
 
     wrapper.is_terminated = check_terminated(
@@ -156,14 +167,14 @@ function PPO.step!(wrapper, quad, edge, type, no_action_reward=0)
     )
 end
 
-function PPO.step!(wrapper, action_index; no_action_reward=0)
+function PPO.step!(wrapper, action_index)
     env = wrapper.env
     na = action_space_size(env)
     @assert 0 < action_index <= na "Expected 0 < action_index <= $na, got action_index = $action_index"
     @assert !wrapper.is_terminated "Attempting to step in terminated environment with action $action_index"
 
     quad, edge, type = index_to_action(action_index)
-    PPO.step!(wrapper, quad, edge, type, no_action_reward)
+    PPO.step!(wrapper, quad, edge, type)
 end
 #####################################################################################################################
 
