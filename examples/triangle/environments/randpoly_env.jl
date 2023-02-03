@@ -25,7 +25,7 @@ function get_desired_degree(initial_boundary_points, vertex_on_boundary)
     return desired_degree
 end
 
-function generate_random_game_environment(polygon_degree, hmax, max_actions)
+function generate_random_game_environment(polygon_degree, hmax)
     boundary_pts = RQ.random_polygon(polygon_degree)
     mesh = RQ.tri_mesh(boundary_pts, hmax = hmax, allow_vertex_insert = true)
     mesh = TM.Mesh(mesh.p, mesh.t)
@@ -33,25 +33,70 @@ function generate_random_game_environment(polygon_degree, hmax, max_actions)
     vertex_on_boundary = TM.active_vertex_on_boundary(mesh)
     desired_degree = get_desired_degree(boundary_pts, vertex_on_boundary)
 
-    env = TM.GameEnv(mesh, desired_degree, max_actions)
+    env = TM.GameEnv(mesh, desired_degree)
 
     return env
+end
+
+function global_score(vertex_score, weights)
+    weighted_scores = (vertex_score .* (weights))
+    return sum(abs.(weighted_scores))
+end
+
+function optimum_score(vertex_score)
+    return abs(sum(vertex_score))
+end
+
+function check_terminated(score, opt_score, num_actions, max_actions)
+    return (score <= opt_score) || (num_actions >= max_actions)
+end
+
+function compute_distance_weights(mesh)
+    weights = TM.compute_distance_to_boundary(mesh) .+ 1
+    return weights
 end
 
 mutable struct RandPolyWrapper
     polygon_degree
     hmax
+    num_actions
     max_actions
     env
+    distance_weights
+    current_score
+    opt_score 
+    is_terminated 
+    reward
     function RandPolyWrapper(polygon_degree, hmax, max_actions)
-        env = generate_random_game_environment(polygon_degree, hmax, max_actions)
-        new(polygon_degree, hmax, max_actions, env)
+        @assert max_actions > 0
+        @assert polygon_degree > 3
+
+        env = generate_random_game_environment(polygon_degree, hmax)
+        distance_weights = compute_distance_weights(env.mesh)
+        num_actions = 0
+        current_score = global_score(env.vertex_score, distance_weights)
+        opt_score = optimum_score(env.vertex_score)
+        is_terminated = check_terminated(current_score, opt_score, num_actions, max_actions)
+        reward = 0
+
+        new(polygon_degree, hmax, num_actions, max_actions, env, distance_weights, current_score, opt_score,
+            is_terminated, reward)
     end
 end
 
-function PPO.reset!(wrapper)
-    env = generate_random_game_environment(polygon_degree, hmax, max_actions)
-    wrapper.env = env
+function Base.show(io::IO, wrapper::RandPolyWrapper)
+    println(io, "RandPolyWrapper")
+    show(io, wrapper.env)
 end
 
-env = generate_random_game_environment(20, 0.3, 50)
+function PPO.reset!(wrapper)
+    env = generate_random_game_environment(wrapper.polygon_degree, wrapper.hmax)
+    wrapper.env = env
+    wrapper.distance_weights = compute_distance_weights(env.mesh)
+    wrapper.current_score = global_score(env.vertex_score, wrapper.distance_weights)
+    wrapper.opt_score = optimum_score(env.vertex_score)
+    wrapper.num_actions = 0
+    wrapper.reward = 0
+    wrapper.is_terminated = check_terminated(wrapper.current_score, wrapper.opt_score, 
+        wrapper.num_actions, wrapper.max_actions)
+end

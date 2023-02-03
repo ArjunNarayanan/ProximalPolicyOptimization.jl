@@ -4,7 +4,7 @@ using RandomQuadMesh
 using QuadMeshGame
 using ProximalPolicyOptimization
 using Distributions: Categorical
-using BSON: @save
+using BSON
 using Printf
 
 RQ = RandomQuadMesh
@@ -179,13 +179,12 @@ function PPO.step!(wrapper, quad, edge, type)
 
     if success
         wrapper.current_score = global_score(wrapper.env.vertex_score)
-        wrapper.num_actions += 1
         wrapper.reward = previous_score - wrapper.current_score
     else
         wrapper.reward = NO_ACTION_REWARD
-        wrapper.num_actions += 1
     end
-
+    
+    wrapper.num_actions += 1
     wrapper.is_terminated = check_terminated(
         wrapper.current_score,
         wrapper.opt_score,
@@ -243,6 +242,7 @@ function plot_env(env, score)
         QM.active_vertex_coordinates(mesh),
         QM.active_quad_connectivity(mesh),
         vertex_score=vs,
+        vertex_size = 30
     )
     
     plot_env_score!(ax, score)
@@ -340,7 +340,7 @@ end
 
 function save_model(s::SaveBestModel, policy)
     d = Dict("evaluator" => s, "policy" => policy)
-    @save s.file_path d
+    BSON.@save s.file_path d
 end
 
 function (s::SaveBestModel)(policy, wrapper)
@@ -379,7 +379,7 @@ end
 function best_single_trajectory_return(policy, wrapper)
     done = PPO.is_terminal(wrapper)
 
-    initial_score = wrapper.env.initial_score
+    initial_score = wrapper.current_score
     minscore = wrapper.current_score
 
     while !done
@@ -404,7 +404,7 @@ function average_best_returns(policy, wrapper, num_trajectories)
 end
 
 function best_normalized_single_trajectory_return(policy, wrapper)
-    max_return = wrapper.env.current_score - wrapper.env.opt_score
+    max_return = wrapper.current_score - wrapper.opt_score
     if max_return == 0
         return 1.0
     else

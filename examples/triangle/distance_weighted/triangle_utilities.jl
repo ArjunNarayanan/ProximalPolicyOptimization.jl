@@ -3,7 +3,7 @@ using TriMeshGame
 using MeshPlotter
 using ProximalPolicyOptimization
 using Distributions: Categorical
-using BSON: @save
+using BSON
 using Printf
 
 TM = TriMeshGame
@@ -12,7 +12,7 @@ MP = MeshPlotter
 
 const HALF_EDGES_PER_ELEMENT = 3
 const ACTIONS_PER_EDGE = 3
-
+const NO_ACTION_REWARD = 0
 
 
 #####################################################################################################################
@@ -75,32 +75,16 @@ function get_action_mask(active_triangle)
     return mask
 end
 
-function make_template(mesh)
-    pairs = TM.make_edge_pairs(mesh)
-
-    tri_vertices = reshape(mesh.connectivity, 1, :)
-
-    ct = TM.cycle_edges(tri_vertices)
-
-    p = TM.zero_pad(tri_vertices)[:, pairs]
-    cp1 = TM.cycle_edges(p)
-
-    p = TM.zero_pad(cp1)[[2, 3], pairs]
-    cp2 = TM.cycle_edges(p)
-
-    template = vcat(ct, cp1, cp2)
-
-    return template
-end
-
 function PPO.state(wrapper)
     env = wrapper.env
-    template = TM.make_template(env.mesh)
-    # template = TM.make_level4_template(env.mesh)
+    template = TM.make_level4_template(env.mesh)
 
     vs = val_or_missing(env.vertex_score, template, 0)
     vd = val_or_missing(env.mesh.degrees, template, 0)
-    matrix = vcat(vs, vd)
+    vdist = val_or_missing(wrapper.distance_weights, template, 0)
+    vdist = vdist .- vdist[1,:]'
+
+    matrix = vcat(vs, vd, vdist)
 
     am = get_action_mask(env.mesh.active_triangle)
 
@@ -208,11 +192,11 @@ end
 #####################################################################################################################
 # STEPPING THE ENVIRONMENT
 function PPO.reward(wrapper)
-    return wrapper.env.reward
+    return wrapper.reward
 end
 
 function PPO.is_terminal(wrapper)
-    return wrapper.env.is_terminated
+    return wrapper.is_terminated
 end
 
 function index_to_action(index)
@@ -228,16 +212,37 @@ function index_to_action(index)
 end
 
 
-function step_wrapper!(wrapper, triangle_index, half_edge_index, action_type, no_action_reward=-4)
+function step_wrapper!(wrapper, triangle_index, half_edge_index, action_type)
     env = wrapper.env
+    previous_score = wrapper.current_score
+    success = false
 
     @assert TM.is_active_triangle(env.mesh, triangle_index) "Attempting to act on inactive triangle $triangle_index with action ($triangle_index, $half_edge_index, $action_type)"
     @assert action_type in 1:ACTIONS_PER_EDGE "Expected action type in 1:$ACTIONS_PER_EDGE, got type = $action_type"
     @assert half_edge_index in 1:HALF_EDGES_PER_ELEMENT "Expected edge in 1:$HALF_EDGES_PER_ELEMENT, got edge = $half_edge_index"
+    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
+
+    if action_type == 1
+        success = TM.step_flip!(env, triangle_index, half_edge_index)
+    elseif action_type == 2
+        success = TM.step_split!(env, triangle_index, half_edge_index)
+    elseif action_type == 3
+        success = TM.step_collapse!(env, triangle_index, half_edge_index)
+    else
+        error("Unexpected action type $action_type")
+    end
+
+    if success
+        wrapper.distance_weights = compute_distance_weights(env.mesh)
+        wrapper.current_score = global_score(env.vertex_score, wrapper.distance_weights)
+        wrapper.reward = previous_score - wrapper.current_score
+    else
+        wrapper.reward = NO_ACTION_REWARD
+    end
     
-    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
-    TM.step!(env, triangle_index, half_edge_index, action_type, no_action_reward=no_action_reward)
-    @assert check_valid_state(wrapper) "Invalid state encountered, check the environment"
+    wrapper.num_actions += 1
+    wrapper.is_terminated = check_terminated(wrapper.current_score, wrapper.opt_score, 
+        wrapper.num_actions, wrapper.max_actions)
 
 end
 
@@ -246,11 +251,11 @@ function action_space_size(env)
     return nt * HALF_EDGES_PER_ELEMENT * ACTIONS_PER_EDGE
 end
 
-function PPO.step!(wrapper, linear_action_index; no_action_reward=-4)
+function PPO.step!(wrapper, linear_action_index)
     @assert 1 <= linear_action_index <= action_space_size(wrapper.env)
-
     triangle_index, half_edge_index, action_type = index_to_action(linear_action_index)
-    step_wrapper!(wrapper, triangle_index, half_edge_index, action_type, no_action_reward)
+
+    step_wrapper!(wrapper, triangle_index, half_edge_index, action_type)
 end
 #####################################################################################################################
 
@@ -276,17 +281,17 @@ function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
     )
 
     text = string(score)
-    ax.text(coords[1], coords[2], score; tpars...)
+    ax.text(coords[1], coords[2], text; tpars...)
 end
 
-function plot_env(_env)
+function plot_env(_env, current_score)
     env = deepcopy(_env)
     TM.reindex!(env)
 
     mesh = env.mesh
     fig, ax = MP.plot_mesh(TM.active_vertex_coordinates(mesh), TM.active_triangle_connectivity(mesh),
         vertex_score=TM.active_vertex_score(env), vertex_size=20, fontsize=15)
-    plot_env_score!(ax, env.current_score)
+    plot_env_score!(ax, current_score)
 
     return fig
 end
@@ -294,7 +299,7 @@ end
 function plot_wrapper(wrapper, filename = "", smooth_iterations = 5)
     smooth_wrapper!(wrapper, smooth_iterations)
     
-    fig = plot_env(wrapper.env)
+    fig = plot_env(wrapper.env, wrapper.current_score)
 
     if length(filename) > 0
         fig.tight_layout()
@@ -356,7 +361,7 @@ end
 
 function save_model(s::SaveBestModel, policy)
     d = Dict("evaluator" => s, "policy" => policy)
-    @save s.file_path d
+    BSON.@save s.file_path d
 end
 
 function (s::SaveBestModel)(policy, wrapper)
@@ -374,8 +379,7 @@ function (s::SaveBestModel)(policy, wrapper)
 end
 
 function single_trajectory_normalized_return(policy, wrapper)
-    env = wrapper.env
-    maxreturn = env.current_score - env.opt_score
+    maxreturn = wrapper.current_score - wrapper.opt_score
     if maxreturn == 0
         return 1.0
     else
