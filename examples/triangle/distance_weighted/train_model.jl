@@ -4,7 +4,7 @@ include("../policy.jl")
 
 polygon_degree = 20
 hmax = 0.25
-max_actions = 100
+max_actions = 20
 discount = 1.0
 epsilon = 0.05
 episodes_per_iteration = 20
@@ -22,6 +22,7 @@ wrapper = RandPolyWrapper(polygon_degree, hmax, max_actions)
 optimizer = Adam(1e-4)
 evaluator = SaveBestModel(output_dir, num_evaluation_trajectories)
 
+# history = search_invalid_action(policy, wrapper, 100)
 
 PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, minibatch_size, num_ppo_iterations, evaluator,
     epsilon=epsilon)

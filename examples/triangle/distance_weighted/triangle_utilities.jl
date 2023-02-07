@@ -98,36 +98,33 @@ end
 #####################################################################################################################
 # CHECKING VALID STATE
 function all_active_vertices(mesh)
-    flag = true
     for vertex in mesh.connectivity
         if !((vertex == 0) || (TM.is_active_vertex(mesh, vertex)))
-            flag = false
+            return false
         end
     end
-    return flag
+    return true
 end
 
 function all_active_triangle_or_boundary(mesh)
-    flag = true
     for triangle in mesh.t2t
         if !(TM.is_active_triangle_or_boundary(mesh, triangle))
-            flag = false
+            return false
         end
     end
-    return flag
+    return true
 end
 
 function no_triangle_self_reference(mesh)
-    flag = true
     for triangle in 1:TM.triangle_buffer(mesh)
         if TM.is_active_triangle(mesh, triangle)
             nbrs = mesh.t2t[:, triangle]
             if any(triangle .== nbrs)
-                flag = false
+                return false
             end
         end
     end
-    return flag
+    return true
 end
 
 function check_valid_state(wrapper)
@@ -151,14 +148,15 @@ function has_unique_neighbors(neighbors)
 end
 
 function all_unique_neighbors(mesh)
-    flag = true
     for triangle in 1:TM.triangle_buffer(mesh)
         if TM.is_active_triangle(mesh, triangle)
             neighbors = mesh.t2t[:, triangle]
-            flag = flag && has_unique_neighbors(neighbors)
+            if !has_unique_neighbors(neighbors)
+                return false
+            end
         end
     end
-    return flag
+    return true
 end
 #####################################################################################################################
 
@@ -474,35 +472,32 @@ end
 #####################################################################################################################
 # DEBUGGING : SEARCHING FOR INVALID STATE
 
-function check_invalid_action(policy, wrapper)   
+function trajectory_to_invalid_state(policy, wrapper)   
     done = PPO.is_terminal(wrapper)
-    history = Dict("envs" => [], "actions" => [])
+    history = Dict("envs" => [deepcopy(wrapper)], "actions" => [0])
 
     while !done
-        prev_env = deepcopy(wrapper)
-
         probs = PPO.action_probabilities(policy, PPO.state(wrapper))
         action = rand(Categorical(probs))
-
-        push!(history["envs"], prev_env)
+        PPO.step!(wrapper, action)
+        
+        push!(history["envs"], deepcopy(wrapper))
         push!(history["actions"], action)
 
-        try
-            PPO.step!(wrapper, action)
-        catch e
-            println("EXCEPTION OCCURRED WHILE TAKING ACTION $action")
-            return prev_env, action
+        if !check_valid_state(wrapper)
+            println("\n\nINVALID STATE ENCOUNTERED\n\n")
+            return history
         end
 
-        prev_env = deepcopy(wrapper)
         done = PPO.is_terminal(wrapper)
     end
 end
 
 function search_invalid_action(policy, wrapper, num_iter)
     for iteration in 1:num_iter
+        println("SEARCH ITERATION : $iteration")
         PPO.reset!(wrapper)
-        out = check_invalid_action(policy, wrapper)
+        out = trajectory_to_invalid_state(policy, wrapper)
         if !isnothing(out)
             return out
         end
