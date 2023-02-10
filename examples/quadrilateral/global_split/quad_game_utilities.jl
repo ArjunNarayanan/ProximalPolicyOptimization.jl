@@ -7,6 +7,7 @@ using Distributions: Categorical
 using BSON
 using Printf
 
+
 RQ = RandomQuadMesh
 QM = QuadMeshGame
 PPO = ProximalPolicyOptimization
@@ -151,7 +152,7 @@ function assert_valid_mesh(mesh)
     @assert QM.all_active_quad_or_boundary(mesh) "Found inactive quads in mesh q2q"
 end
 
-function PPO.step!(wrapper, quad, edge, type)
+function step_wrapper!(wrapper, quad, edge, type)
     env = wrapper.env
     previous_score = wrapper.current_score
     success = false
@@ -160,6 +161,7 @@ function PPO.step!(wrapper, quad, edge, type)
     @assert type in 1:NUM_ACTIONS_PER_EDGE "Expected action type in {1,2,3,4} got type = $type"
     @assert edge in (1, 2, 3, 4) "Expected edge in {1,2,3,4} got edge = $edge"
     assert_valid_mesh(env.mesh)
+    @assert wrapper.opt_score == optimal_score(wrapper.env.vertex_score)
 
     # println("\tStepping : ", quad, edge, type)
 
@@ -172,25 +174,19 @@ function PPO.step!(wrapper, quad, edge, type)
     elseif type == 4
         success = QM.step_collapse!(env, quad, edge)
     elseif type == 5
-        success = QM.step_global_split_without_loops!(env, quad, edge, 50)
+        success = QM.step_global_split_without_loops!(env, quad, edge, 100)
     else
         error("Unexpected action type $type")
     end
 
+    update_env_after_step!(wrapper)
+    
     if success
-        wrapper.current_score = global_score(wrapper.env.vertex_score)
         wrapper.reward = previous_score - wrapper.current_score
     else
         wrapper.reward = NO_ACTION_REWARD
     end
     
-    wrapper.num_actions += 1
-    wrapper.is_terminated = check_terminated(
-        wrapper.current_score,
-        wrapper.opt_score,
-        wrapper.num_actions,
-        wrapper.max_actions
-    )
 end
 
 function PPO.step!(wrapper, action_index)
@@ -200,7 +196,7 @@ function PPO.step!(wrapper, action_index)
     @assert !wrapper.is_terminated "Attempting to step in terminated environment with action $action_index"
 
     quad, edge, type = index_to_action(action_index)
-    PPO.step!(wrapper, quad, edge, type)
+    step_wrapper!(wrapper, quad, edge, type)
 end
 #####################################################################################################################
 
@@ -231,7 +227,7 @@ function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
     ax.text(coords[1], coords[2], score; tpars...)
 end
 
-function plot_env(env, score)
+function plot_env(env, score, number_elements = false, internal_order = false)
     env = deepcopy(env)
 
     QM.reindex_game_env!(env)
@@ -242,7 +238,9 @@ function plot_env(env, score)
         QM.active_vertex_coordinates(mesh),
         QM.active_quad_connectivity(mesh),
         vertex_score=vs,
-        vertex_size = 30
+        vertex_size = 30,
+        number_elements = number_elements,
+        internal_order = internal_order
     )
     
     plot_env_score!(ax, score)
@@ -250,11 +248,14 @@ function plot_env(env, score)
     return fig, ax
 end
 
-function plot_wrapper(wrapper, filename = ""; smooth_iterations = 5)
+function plot_wrapper(wrapper, filename = ""; smooth_iterations = 5, number_elements = false)
     smooth_wrapper!(wrapper, smooth_iterations)
 
     text = string(wrapper.current_score) * " / " * string(wrapper.opt_score)
-    fig, ax = plot_env(wrapper.env, text)
+
+    internal_order = number_elements
+    element_numbers = number_elements ? findall(wrapper.env.mesh.active_quad) : false
+    fig, ax = plot_env(wrapper.env, text, element_numbers, internal_order)
     ax.set_xlim(-1, 1)
     ax.set_ylim(-1, 1)
 
@@ -326,6 +327,7 @@ mutable struct SaveBestModel
     best_return
     mean_returns
     std_returns
+    action_counts
     function SaveBestModel(root_dir, num_trajectories, filename = "best_model.bson")
         if !isdir(root_dir)
             mkpath(root_dir)
@@ -334,7 +336,8 @@ mutable struct SaveBestModel
         file_path = joinpath(root_dir, filename)
         mean_returns = []
         std_returns = []
-        new(file_path, num_trajectories, -Inf, mean_returns, std_returns)
+        action_counts = []
+        new(file_path, num_trajectories, -Inf, mean_returns, std_returns, action_counts)
     end
 end
 
@@ -344,7 +347,7 @@ function save_model(s::SaveBestModel, policy)
 end
 
 function (s::SaveBestModel)(policy, wrapper)
-    ret, dev = average_normalized_returns(policy, wrapper, s.num_trajectories)
+    ret, dev, action_counts = average_normalized_returns_and_action_stats(policy, wrapper, s.num_trajectories)
     if ret > s.best_return
         s.best_return = ret
         @printf "\nNEW BEST RETURN : %1.4f\n" ret
@@ -353,8 +356,57 @@ function (s::SaveBestModel)(policy, wrapper)
     end
 
     @printf "RET = %1.4f\tDEV = %1.4f\n" ret dev
+    println("ACTION COUNTS: ", action_counts, "\n")
+
     push!(s.mean_returns, ret)
     push!(s.std_returns, dev)
+    push!(s.action_counts, action_counts)
+end
+
+function single_trajectory_return_and_action_stats(policy, env)
+    ret = 0
+    action_type_list = Int[]
+    done = PPO.is_terminal(env)
+
+    while !done
+        probs = PPO.action_probabilities(policy, PPO.state(env))
+        action = rand(Categorical(probs))
+        @assert probs[action] > 0.0
+        _, _, action_type = index_to_action(action)
+
+        PPO.step!(env, action)
+
+        done = PPO.is_terminal(env)
+        ret += PPO.reward(env)
+        push!(action_type_list, action_type)
+    end
+    return ret, action_type_list
+end
+
+function single_trajectory_normalized_return_and_action_stats(policy, wrapper)
+    maxreturn = wrapper.current_score - wrapper.opt_score
+    if maxreturn == 0
+        return 1.0, Int[]
+    else
+        ret, stats = single_trajectory_return_and_action_stats(policy, wrapper)
+        return ret / maxreturn, stats
+    end
+end
+
+function average_normalized_returns_and_action_stats(policy, wrapper, num_trajectories)
+    ret = zeros(num_trajectories)
+    actions = Int[]
+    for idx = 1:num_trajectories
+        PPO.reset!(wrapper)
+        r, s = single_trajectory_normalized_return_and_action_stats(policy, wrapper)
+        ret[idx] = r
+        append!(actions, s)
+    end
+    mean = Flux.mean(ret)
+    std = Flux.std(ret)
+    stats = [count(actions .== i) for i = 1:NUM_ACTIONS_PER_EDGE]
+
+    return mean, std, stats
 end
 
 function single_trajectory_normalized_return(policy, wrapper)

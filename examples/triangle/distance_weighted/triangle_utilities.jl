@@ -11,7 +11,7 @@ PPO = ProximalPolicyOptimization
 MP = MeshPlotter
 
 const HALF_EDGES_PER_ELEMENT = 3
-const ACTIONS_PER_EDGE = 3
+const ACTIONS_PER_EDGE = 2
 const NO_ACTION_REWARD = 0
 
 
@@ -127,12 +127,17 @@ function no_triangle_self_reference(mesh)
     return true
 end
 
+function has_initial_optimal_score(wrapper)
+    return wrapper.opt_score == optimum_score(wrapper.env.vertex_score)
+end
+
 function check_valid_state(wrapper)
     mesh = wrapper.env.mesh
     flag = all_active_vertices(mesh) && 
            no_triangle_self_reference(mesh) && 
            all_active_triangle_or_boundary(mesh) &&
-           all_unique_neighbors(mesh)
+           all_unique_neighbors(mesh) &&
+           has_initial_optimal_score(wrapper)
 
     return flag
 end
@@ -224,8 +229,8 @@ function step_wrapper!(wrapper, triangle_index, half_edge_index, action_type)
         success = TM.step_flip!(env, triangle_index, half_edge_index)
     elseif action_type == 2
         success = TM.step_split!(env, triangle_index, half_edge_index)
-    elseif action_type == 3
-        success = TM.step_collapse!(env, triangle_index, half_edge_index)
+    # elseif action_type == 3
+    #     success = TM.step_collapse!(env, triangle_index, half_edge_index)
     else
         error("Unexpected action type $action_type")
     end
@@ -269,7 +274,7 @@ function smooth_wrapper!(wrapper, niter = 1)
     end
 end
 
-function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
+function plot_env_score!(ax, score, opt_score; coords = (0.8, 0.8), fontsize = 50)
     tpars = Dict(
         :color => "black",
         :horizontalalignment => "center",
@@ -278,26 +283,31 @@ function plot_env_score!(ax, score; coords = (0.8, 0.8), fontsize = 50)
         :fontweight => "bold",
     )
 
-    text = string(score)
+    text = string(score) * "/" * string(opt_score)
     ax.text(coords[1], coords[2], text; tpars...)
 end
 
-function plot_env(_env, current_score)
+function plot_env(_env, current_score, opt_score, number_elements, internal_order)
     env = deepcopy(_env)
-    TM.reindex!(env)
 
+
+    TM.reindex!(env)
     mesh = env.mesh
     fig, ax = MP.plot_mesh(TM.active_vertex_coordinates(mesh), TM.active_triangle_connectivity(mesh),
-        vertex_score=TM.active_vertex_score(env), vertex_size=20, fontsize=15)
-    plot_env_score!(ax, current_score)
+        vertex_score=TM.active_vertex_score(env), vertex_size=20, fontsize=15,
+        number_elements = number_elements, internal_order = internal_order)
+
+    plot_env_score!(ax, current_score, opt_score)
 
     return fig
 end
 
-function plot_wrapper(wrapper, filename = "", smooth_iterations = 5)
+function plot_wrapper(wrapper, filename = "", smooth_iterations = 5; number_elements = false)
     smooth_wrapper!(wrapper, smooth_iterations)
     
-    fig = plot_env(wrapper.env, wrapper.current_score)
+    internal_order = number_elements
+    element_numbers = number_elements ? findall(wrapper.env.mesh.active_triangle) : false
+    fig = plot_env(wrapper.env, wrapper.current_score, wrapper.opt_score, element_numbers, internal_order)
 
     if length(filename) > 0
         fig.tight_layout()

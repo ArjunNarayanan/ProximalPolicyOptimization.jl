@@ -13,31 +13,41 @@ root_dir = "/Users/arjun/.julia/dev/ProximalPolicyOptimization/examples/quadrila
 
 num_evaluation_trajectories = 100
 output_dir = joinpath(root_dir, "output")
-# evaluator = SaveBestModel(output_dir, num_evaluation_trajectories)
+evaluator = SaveBestModel(output_dir, num_evaluation_trajectories)
 
 poly_degree = 10
 max_actions = 20
 wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg)
 
-# policy = SimplePolicy.Policy(216, 128, 1, 5)
-# optimizer = ADAM(1e-4)
-
-checkpoint = BSON.load(joinpath(root_dir, "output", "best_model.bson"))[:d]
-policy = checkpoint["policy"]
-
+policy = SimplePolicy.Policy(216, 128, 1, 5)
+optimizer = ADAM(1e-4)
 
 # PPO.ppo_iterate!(policy, wrapper, optimizer, episodes_per_iteration, minibatch_size, num_iter, evaluator)
 
 
-max_actions = 20
-wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg)
-# ret, dev = average_normalized_best_returns(policy, wrapper, 100)
+data = BSON.load("examples/quadrilateral/global_split/output/best_model.bson")[:d]
+policy = data["policy"]
+evaluator = data["evaluator"]
 
-# using PyPlot
-# fig, ax = plot_normalized_returns(evaluator.mean_returns, evaluator.std_returns)
-# ax.set_title("Average returns vs training iterations for 4-level template")
-# fig.savefig("examples/quadrilateral/test_global_split/output/level4/figures/learning_curve.png")
 
-PPO.reset!(wrapper)
-fig_output_dir = joinpath(output_dir, "rollout-2")
-plot_trajectory(policy, wrapper, fig_output_dir)
+# poly_degree = 10
+# max_actions = 100
+# wrapper = RandPolyEnv(poly_degree, max_actions, quad_alg)
+# PPO.reset!(wrapper)
+# plot_wrapper(wrapper, number_elements = false)
+
+# probs = PPO.action_probabilities(policy, PPO.state(wrapper))
+# action = rand(Categorical(probs))
+# q, e, t = index_to_action(action)
+# PPO.step!(wrapper, action)
+# plot_wrapper(wrapper, number_elements = false)
+
+
+# m, s, a = average_normalized_returns_and_action_stats(policy, wrapper, 100)
+
+# plot_wrapper(wrapper, number_elements = true)
+# step_wrapper!(wrapper, 29, 2, 5)
+
+# PPO.reset!(wrapper)
+# fig_output_dir = joinpath(output_dir, "rollout-3")
+# plot_trajectory(policy, wrapper, fig_output_dir)

@@ -42,7 +42,6 @@ mutable struct RandPolyEnv
     num_actions
     max_actions::Any
     env::Any
-    # distance_to_boundary
     current_score
     opt_score
     is_terminated
@@ -53,7 +52,6 @@ mutable struct RandPolyEnv
 
         mesh, d0 = initialize_random_mesh(poly_degree, quad_alg)
         env = QM.GameEnv(mesh, d0)
-        # distance_to_boundary = QM.compute_distance_to_boundary(mesh)
         current_score = global_score(env.vertex_score)
         opt_score = optimal_score(env.vertex_score)
         reward = 0
@@ -71,7 +69,6 @@ end
 function PPO.reset!(wrapper)
     mesh, d0 = initialize_random_mesh(wrapper.poly_degree, wrapper.quad_alg)
     wrapper.env = QM.GameEnv(mesh, d0)
-    # wrapper.distance_to_boundary = QM.compute_distance_to_boundary(mesh)
     wrapper.current_score = global_score(wrapper.env.vertex_score)
     wrapper.reward = 0
     wrapper.num_actions = 0
@@ -81,6 +78,8 @@ function PPO.reset!(wrapper)
 end
 
 function update_env_after_step!(wrapper)
-    # wrapper.distance_to_boundary = QM.compute_distance_to_boundary(wrapper.env.mesh)
     wrapper.current_score = global_score(wrapper.env.vertex_score)
+    wrapper.num_actions += 1
+    wrapper.is_terminated = check_terminated(wrapper.current_score, wrapper.opt_score, 
+        wrapper.num_actions, wrapper.max_actions)
 end

@@ -14,11 +14,33 @@ function ppo_loss(policy, state, actions, old_action_probabilities, advantage, e
     return loss
 end
 
+function entropy_loss(action_probabilities, tol = 1e-6)
+    action_probabilities = clamp.(action_probabilities, tol, 1.0)
+    h = action_probabilities .* log.(action_probabilities)
+    h = -sum(h, dims = 1)
+    return Flux.mean(h)
+end
+
+function ppo_loss_with_entropy(policy, state, actions, old_action_probabilities, advantage, epsilon, entropy_weight = 0.1)
+    ap = batch_action_probabilities(policy, state)
+    selected_ap = [ap[a, idx] for (idx, a) in enumerate(actions)]
+
+    ppo_gain = @. selected_ap / old_action_probabilities * advantage
+    ppo_clip = simplified_ppo_clip(epsilon, advantage)
+
+    ppoloss = -Flux.mean(min.(ppo_gain, ppo_clip))
+    entropyloss = -entropy_loss(ap)
+
+    loss = ppoloss + entropy_weight * entropyloss 
+
+    return loss
+end
+
 function step_batch!(policy, optimizer, state, selected_actions, old_action_probabilities, advantage, epsilon)
     weights = Flux.params(policy)
     local loss
     grad = Flux.gradient(weights) do
-        loss = ppo_loss(policy, state, selected_actions, old_action_probabilities, advantage, epsilon)
+        loss = ppo_loss_with_entropy(policy, state, selected_actions, old_action_probabilities, advantage, epsilon)
         return loss
     end
 
@@ -76,6 +98,8 @@ function ppo_iterate!(
 )
 
     for iter in 1:num_ppo_iterations
+        evaluator(policy, env)
+
         println("\nPPO ITERATION : $iter")
 
         rollouts = EpisodeData()
@@ -86,6 +110,5 @@ function ppo_iterate!(
 
         ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration)
 
-        evaluator(policy, env)
     end
 end
