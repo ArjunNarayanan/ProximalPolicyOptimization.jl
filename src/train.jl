@@ -1,46 +1,63 @@
-function simplified_ppo_clip(epsilon, advantage)
-    return [a >= 0 ? (1 + epsilon) * a : (1 - epsilon) * a for a in advantage]
+function simplified_ppo_clip(advantage, epsilon)
+    if advantage >= 0
+        return (1.0f0 + epsilon) * advantage
+    else
+        return (1.0f0 - epsilon) * advantage
+    end
 end
 
 function ppo_loss(policy, state, actions, old_action_probabilities, advantage, epsilon)
-    ap = batch_action_probabilities(policy, state)
-    selected_ap = [ap[a, idx] for (idx, a) in enumerate(actions)]
+    current_action_probabilities = batch_action_probabilities(policy, state)
+    selected_action_probabilities = current_action_probabilities[actions]
 
-    ppo_gain = @. selected_ap / old_action_probabilities * advantage
-    ppo_clip = simplified_ppo_clip(epsilon, advantage)
+    ppo_gain = @. selected_action_probabilities / old_action_probabilities * advantage
+    ppo_clip = simplified_ppo_clip.(advantage, epsilon)
 
     loss = -Flux.mean(min.(ppo_gain, ppo_clip))
 
     return loss
 end
 
-function entropy_loss(action_probabilities, tol = 1e-6)
-    action_probabilities = clamp.(action_probabilities, tol, 1.0)
-    h = action_probabilities .* log.(action_probabilities)
+function smoothed_entropy(action_probabilities, smooth = 1f-8)
+    smoothed_probabilities = (1.0f0 - smooth)*action_probabilities .+ smooth/size(action_probabilities, 1)
+    h = smoothed_probabilities .* log.(smoothed_probabilities)
     h = -sum(h, dims = 1)
     return Flux.mean(h)
 end
 
-function ppo_loss_with_entropy(policy, state, actions, old_action_probabilities, advantage, epsilon, entropy_weight = 0.1)
-    ap = batch_action_probabilities(policy, state)
-    selected_ap = [ap[a, idx] for (idx, a) in enumerate(actions)]
+function clamped_entropy(action_probabilities, tol = 1f-8)
+    clamped_action_probabilities = max.(action_probabilities, tol)
+    h = clamped_action_probabilities .* log.(clamped_action_probabilities)
+    h = -sum(h, dims=1)
+    return Flux.mean(h)
+end
 
-    ppo_gain = @. selected_ap / old_action_probabilities * advantage
-    ppo_clip = simplified_ppo_clip(epsilon, advantage)
+function ppo_loss_with_entropy(policy, state, actions, old_action_probabilities, advantage, epsilon, entropy_weight = 0.1f0)
+    current_action_probabilities = batch_action_probabilities(policy, state)
+    selected_action_probabilities = current_action_probabilities[actions]
+
+    ppo_gain = @. selected_action_probabilities / old_action_probabilities * advantage
+    ppo_clip = simplified_ppo_clip.(advantage, epsilon)
 
     ppoloss = -Flux.mean(min.(ppo_gain, ppo_clip))
-    entropyloss = -entropy_loss(ap)
+    entropyloss = clamped_entropy(current_action_probabilities)
 
-    loss = ppoloss + entropy_weight * entropyloss 
+    loss = ppoloss - entropy_weight * entropyloss 
 
     return loss
 end
 
-function step_batch!(policy, optimizer, state, selected_actions, old_action_probabilities, advantage, epsilon)
+function get_linear_action_index(selected_actions, num_actions_per_state)
+    num_states = length(selected_actions)
+    offset = range(start = 0, step = num_actions_per_state, length = num_states)
+    return selected_actions + offset
+end
+
+function step_batch!(policy, optimizer, state, linear_action_index, old_action_probabilities, advantage, epsilon)
     weights = Flux.params(policy)
     local loss
     grad = Flux.gradient(weights) do
-        loss = ppo_loss_with_entropy(policy, state, selected_actions, old_action_probabilities, advantage, epsilon)
+        loss = ppo_loss_with_entropy(policy, state, linear_action_index, old_action_probabilities, advantage, epsilon)
         return loss
     end
 
@@ -57,11 +74,13 @@ function step_epoch!(policy, optimizer, rollouts, epsilon, batch_size)
         stop = min(start + batch_size - 1, num_data)
 
         state = batch_state(rollouts.state_data[start:stop])
+        num_actions_per_state = number_of_actions_per_state(state)
         current_action_probabilities = rollouts.selected_action_probabilities[start:stop]
         advantage = rollouts.rewards[start:stop]
         selected_actions = rollouts.selected_actions[start:stop]
 
-        l = step_batch!(policy, optimizer, state, selected_actions, current_action_probabilities, advantage, epsilon)
+        linear_action_index = get_linear_action_index(selected_actions, num_actions_per_state)
+        l = step_batch!(policy, optimizer, state, linear_action_index, current_action_probabilities, advantage, epsilon)
         append!(loss, l)
 
         start = stop + 1
@@ -105,8 +124,8 @@ function ppo_iterate!(
         rollouts = EpisodeData()
         collect_rollouts!(rollouts, env, policy, episodes_per_iteration)
 
-        rollouts = prepare_rollouts_for_training(rollouts)
         compute_state_value!(rollouts, discount)
+        rollouts = prepare_rollouts_for_training(rollouts)
 
         ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration)
 
