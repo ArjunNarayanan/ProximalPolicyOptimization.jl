@@ -110,10 +110,10 @@ function ppo_iterate!(
     episodes_per_iteration,
     minibatch_size,
     num_ppo_iterations,
-    evaluator;
-    epochs_per_iteration = 10,
-    discount = 0.95,
-    epsilon = 0.05,
+    evaluator,
+    epochs_per_iteration,
+    discount,
+    epsilon,
 )
 
     for iter in 1:num_ppo_iterations
