@@ -49,8 +49,9 @@ function collect_step_data!(episode_data, env, policy)
 
     r = reward(env)
     t = is_terminal(env)
+    cpu_state = s |> cpu
 
-    update!(episode_data, s, ap[a], a, r, t)
+    update!(episode_data, cpu_state, ap[a], a, r, t)
 end
 
 function collect_episode_data!(episode_data, env, policy)
