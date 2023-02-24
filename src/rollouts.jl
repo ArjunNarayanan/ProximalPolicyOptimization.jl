@@ -8,9 +8,9 @@ end
 
 function EpisodeData()
     state_data = []
-    selected_action_probabilities = Float64[]
+    selected_action_probabilities = Float32[]
     selected_actions = Int64[]
-    rewards = Float64[]
+    rewards = Float32[]
     terminal = Bool[]
     EpisodeData(state_data, selected_action_probabilities, selected_actions, rewards, terminal)
 end
@@ -40,8 +40,8 @@ function Base.show(io::IO, data::EpisodeData)
 end
 
 function collect_step_data!(episode_data, env, policy)
-    s = state(env)
-    ap = action_probabilities(policy, s)
+    s = state(env) |> gpu
+    ap = action_probabilities(policy, s) |> cpu
     a = rand(Categorical(ap))
     @assert ap[a] > 0.0
 
