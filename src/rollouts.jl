@@ -1,47 +1,8 @@
-struct EpisodeData
-    state_data::Any
-    selected_action_probabilities::Any
-    selected_actions::Any
-    rewards::Any
-    terminal
-end
+function collect_step_data!(buffer, env, policy)
+    cpu_state = state(env)
+    gpu_state = cpu_state |> gpu
 
-function EpisodeData()
-    state_data = []
-    selected_action_probabilities = Float32[]
-    selected_actions = Int64[]
-    rewards = Float32[]
-    terminal = Bool[]
-    EpisodeData(state_data, selected_action_probabilities, selected_actions, rewards, terminal)
-end
-
-function update!(episode::EpisodeData, state, action_probability, action, reward, terminal)
-    push!(episode.state_data, state)
-    push!(episode.selected_action_probabilities, action_probability)
-    push!(episode.selected_actions, action)
-    push!(episode.rewards, reward)
-    push!(episode.terminal, terminal)
-    return
-end
-
-function Base.length(b::EpisodeData)
-    @assert length(b.selected_action_probabilities) ==
-            length(b.selected_actions) ==
-            length(b.rewards) ==
-            length(b.state_data) ==
-            length(b.terminal)
-
-    return length(b.selected_action_probabilities)
-end
-
-function Base.show(io::IO, data::EpisodeData)
-    nd = length(data)
-    println(io, "EpisodeData\n\t$nd data points")
-end
-
-function collect_step_data!(episode_data, env, policy)
-    s = state(env) |> gpu
-    ap = action_probabilities(policy, s) |> cpu
+    ap = action_probabilities(policy, gpu_state) |> cpu
     a = rand(Categorical(ap))
     @assert ap[a] > 0.0
 
@@ -49,9 +10,8 @@ function collect_step_data!(episode_data, env, policy)
 
     r = reward(env)
     t = is_terminal(env)
-    cpu_state = s |> cpu
 
-    update!(episode_data, cpu_state, ap[a], a, r, t)
+    update!(buffer, cpu_state, ap[a], a, r, t)
 end
 
 function collect_episode_data!(episode_data, env, policy)

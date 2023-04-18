@@ -4,6 +4,9 @@ using Distributions: Categorical
 using Flux
 using Random
 using Printf
+using BSON
+using DataFrames
+using CSV
 
 function not_implemented(name)
     error("Function $name needs to be overloaded")
@@ -26,7 +29,8 @@ function batch_advantage(episodes) not_implemented("batch_advantage") end
 function save_loss(evaluator, loss) not_implemented("save_loss") end
 
 
-include("rollouts.jl")
+# include("rollouts.jl")
+include("rollouts_to_disk.jl")
 include("train.jl")
 include("evaluate.jl")
 
