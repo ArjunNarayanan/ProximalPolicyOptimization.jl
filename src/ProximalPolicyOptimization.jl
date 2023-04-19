@@ -21,16 +21,17 @@ function step!(env, action) not_implemented("step!") end
 
 function action_probabilities(policy, state) not_implemented("action_probabilities") end
 function batch_action_probabilities(policy, state) not_implemented("batch_action_probabilities") end
-function episode_returns(rewards, state_data, discount) not_implemented("episode_returns") end
-function prepare_rollouts_for_training(rollouts) return rollouts end
+# function episode_returns(rewards, state_data, discount) not_implemented("episode_returns") end
+# function prepare_rollouts_for_training(rollouts) return rollouts end
 function batch_state(state_data) not_implemented("batch_state") end
 function number_of_actions_per_state(state) not_implemented("number_of_actions_per_state") end
-function batch_advantage(episodes) not_implemented("batch_advantage") end
+# function batch_advantage(episodes) not_implemented("batch_advantage") end
 function save_loss(evaluator, loss) not_implemented("save_loss") end
 
 
 # include("rollouts.jl")
 include("rollouts_to_disk.jl")
+include("dataset.jl")
 include("train.jl")
 include("evaluate.jl")
 

@@ -5,6 +5,7 @@ mutable struct Rollouts
     rewards
     terminal
     num_samples
+    trajectory_filename
 end
 
 function prepare_state_data_directory(path)
@@ -21,9 +22,10 @@ function Rollouts(state_data_dir)
     rewards = Float32[]
     terminal = Bool[]
     num_samples = 0
+    trajectory_filename = "trajectory.csv"
     prepare_state_data_directory(state_data_dir)
     
-    Rollouts(state_data_dir, selected_action_probabilities, selected_actions, rewards, terminal, num_samples)
+    Rollouts(state_data_dir, selected_action_probabilities, selected_actions, rewards, terminal, num_samples, trajectory_filename)
 end
 
 function write_state_to_disk(buffer::Rollouts, state)
@@ -55,7 +57,7 @@ end
 
 function Base.show(io::IO, data::Rollouts)
     nd = length(data)
-    println(io, "ARTrajectory\n\t$nd data points")
+    println(io, "Rollouts\n\t$nd data points")
 end
 
 function collect_step_data!(buffer, env, policy)
@@ -113,6 +115,6 @@ function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount
                 "state_values" => state_values,
     )
     df = DataFrame(data)
-    df_file_path = joinpath(buffer.state_data_directory, "trajectory.csv")
+    df_file_path = joinpath(buffer.state_data_directory, buffer.trajectory_filename)
     CSV.write(df_file_path, df)
 end
