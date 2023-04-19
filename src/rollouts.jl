@@ -25,13 +25,14 @@ end
 
 function compute_returns(rewards, terminal, discount)
     ne = length(rewards)
-
-    values = zeros(ne)
-    v = 0.0
+    
+    T = eltype(rewards)
+    values = zeros(T, ne)
+    v = zero(T)
 
     for idx = ne:-1:1
         if terminal[idx]
-            v = 0.0
+            v = zero(T)
         end
         v = rewards[idx] + discount * v
         values[idx] = v

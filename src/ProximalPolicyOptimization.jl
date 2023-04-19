@@ -25,7 +25,7 @@ function batch_action_probabilities(policy, state) not_implemented("batch_action
 # function prepare_rollouts_for_training(rollouts) return rollouts end
 function batch_state(state_data) not_implemented("batch_state") end
 function number_of_actions_per_state(state) not_implemented("number_of_actions_per_state") end
-# function batch_advantage(episodes) not_implemented("batch_advantage") end
+function batch_advantage(state, value) not_implemented("batch_advantage") end
 function save_loss(evaluator, loss) not_implemented("save_loss") end
 
 

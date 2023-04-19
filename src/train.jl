@@ -51,7 +51,17 @@ function get_linear_action_index(selected_actions, num_actions_per_state)
     return selected_actions + offset
 end
 
-function step_batch!(policy, optimizer, state, linear_action_index, old_action_probabilities, advantage, epsilon, entropy_weight)
+function step_batch!(
+        policy, 
+        optimizer, 
+        state, 
+        linear_action_index, 
+        old_action_probabilities, 
+        advantage, 
+        epsilon, 
+        entropy_weight
+    )
+
     weights = Flux.params(policy)
     local ppoloss, entropyloss
     grad = Flux.gradient(weights) do
@@ -73,18 +83,27 @@ function step_batch!(policy, optimizer, state, linear_action_index, old_action_p
     return ppoloss, entropyloss
 end
 
-function step_epoch!(policy, optimizer, rollouts, epsilon, batch_size, entropy_weight)
-    num_data = length(rollouts)
+function step_epoch!(policy, optimizer, dataset, epsilon, batch_size, entropy_weight)
+    num_data = length(dataset)
+    @assert 1 <= batch_size <= num_data
+
     start = 1
-    ppo_loss_history, entropy_loss_history = [], []
+    ppo_loss_history, entropy_loss_history = Float32[], Float32[]
+
+    file_indices = randperm(num_data)
+
     while start <= num_data
         stop = min(start + batch_size - 1, num_data)
 
-        state = batch_state(rollouts.state_data[start:stop]) |> gpu
+        batch_indices = file_indices[start:stop]
+        batched_samples = dataset[batch_indices]
+
+        state = batched_samples["state"] |> gpu
         
-        current_action_probabilities = rollouts.selected_action_probabilities[start:stop] |> gpu
-        advantage = rollouts.rewards[start:stop] |> gpu
-        selected_actions = rollouts.selected_actions[start:stop] |> gpu
+        current_action_probabilities = batched_samples["selected_action_probability"] |> gpu
+        returns = batched_samples["returns"]
+        advantage = batch_advantage(state, returns) |> gpu
+        selected_actions = batched_samples["selected_action"] |> gpu
         
         num_actions_per_state = number_of_actions_per_state(state)
         linear_action_index = get_linear_action_index(selected_actions, num_actions_per_state)
@@ -104,6 +123,7 @@ function step_epoch!(policy, optimizer, rollouts, epsilon, batch_size, entropy_w
 
         start = stop + 1
     end
+    
     return Flux.mean(ppo_loss_history), Flux.mean(entropy_loss_history)
 end
 
@@ -152,7 +172,8 @@ function ppo_iterate!(
         rollouts = Rollouts(state_data_path)
         collect_rollouts!(rollouts, env, policy, episodes_per_iteration, discount)
 
-        rollouts = prepare_rollouts_for_training(rollouts)
+        dataset = Dataset(rollouts.state_data_directory)
+        # rollouts = prepare_rollouts_for_training(rollouts)
 
         ppoloss, entropyloss = ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
         append!(loss["ppo"], ppoloss)

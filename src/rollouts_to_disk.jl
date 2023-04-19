@@ -87,13 +87,14 @@ end
 
 function compute_returns(rewards, terminal, discount)
     ne = length(rewards)
-
-    values = zeros(ne)
-    v = 0.0
+    
+    T = eltype(rewards)
+    values = zeros(T, ne)
+    v = zero(T)
 
     for idx = ne:-1:1
         if terminal[idx]
-            v = 0.0
+            v = zero(T)
         end
         v = rewards[idx] + discount * v
         values[idx] = v
@@ -107,14 +108,16 @@ function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount
         reset!(env)
         collect_episode_data!(buffer, env, policy)
     end
-    state_values = compute_returns(buffer.rewards, buffer.terminal, discount)
+    cumulative_returns = compute_returns(buffer.rewards, buffer.terminal, discount)
     file_names = ["sample_" * string(i) * ".bson" for i in 1:buffer.num_samples]
     data = Dict("sample_names" => file_names, 
                 "selected_actions" => buffer.selected_actions,
                 "selected_action_probabilities" => buffer.selected_action_probabilities,
-                "state_values" => state_values,
+                "returns" => cumulative_returns,
     )
     df = DataFrame(data)
+    df = df[!, ["sample_names", "selected_actions", "selected_action_probabilities", "returns"]]
+    
     df_file_path = joinpath(buffer.state_data_directory, buffer.trajectory_filename)
     CSV.write(df_file_path, df)
 end
