@@ -88,7 +88,7 @@ function step_epoch!(policy, optimizer, dataset, epsilon, batch_size, entropy_we
     @assert 1 <= batch_size <= num_data
 
     start = 1
-    ppo_loss_history, entropy_loss_history = Float32[], Float32[]
+    ppo_loss_history, entropy_loss_history = [], []
 
     file_indices = randperm(num_data)
 
@@ -130,7 +130,7 @@ end
 function ppo_train!(
     policy,
     optimizer,
-    rollouts,
+    dataset,
     epsilon,
     batch_size,
     num_epochs,
@@ -139,8 +139,7 @@ function ppo_train!(
     ppo_loss_history = []
     entropy_loss_history = []
     for epoch = 1:num_epochs
-        shuffle!(rollouts)
-        ppoloss, entropyloss = step_epoch!(policy, optimizer, rollouts, epsilon, batch_size, entropy_weight)
+        ppoloss, entropyloss = step_epoch!(policy, optimizer, dataset, epsilon, batch_size, entropy_weight)
         @printf "EPOCH : %d \t PPO LOSS : %1.4f\t ENTROPY LOSS : %1.4f\n" epoch ppoloss entropyloss
         push!(ppo_loss_history, ppoloss)
         push!(entropy_loss_history, entropyloss)
@@ -173,9 +172,8 @@ function ppo_iterate!(
         collect_rollouts!(rollouts, env, policy, episodes_per_iteration, discount)
 
         dataset = Dataset(rollouts.state_data_directory)
-        # rollouts = prepare_rollouts_for_training(rollouts)
 
-        ppoloss, entropyloss = ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
+        ppoloss, entropyloss = ppo_train!(policy, optimizer, dataset, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
         append!(loss["ppo"], ppoloss)
         append!(loss["entropy"], entropyloss)
 
