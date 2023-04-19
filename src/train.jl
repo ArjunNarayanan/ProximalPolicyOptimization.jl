@@ -139,7 +139,8 @@ function ppo_iterate!(
     epochs_per_iteration,
     discount,
     epsilon,
-    entropy_weight
+    entropy_weight,
+    state_data_path
 )
 
     loss = Dict("ppo" => [], "entropy" => [])
@@ -148,10 +149,9 @@ function ppo_iterate!(
 
         println("\nPPO ITERATION : $iter")
 
-        rollouts = EpisodeData()
-        collect_rollouts!(rollouts, env, policy, episodes_per_iteration)
+        rollouts = Rollouts(state_data_path)
+        collect_rollouts!(rollouts, env, policy, episodes_per_iteration, discount)
 
-        compute_state_value!(rollouts, discount)
         rollouts = prepare_rollouts_for_training(rollouts)
 
         ppoloss, entropyloss = ppo_train!(policy, optimizer, rollouts, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)

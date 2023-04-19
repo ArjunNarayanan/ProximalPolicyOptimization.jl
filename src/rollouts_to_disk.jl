@@ -1,4 +1,4 @@
-mutable struct ARTrajectory
+mutable struct Rollouts
     state_data_directory
     selected_action_probabilities
     selected_actions
@@ -15,7 +15,7 @@ function prepare_state_data_directory(path)
     mkpath(state_data_path)
 end
 
-function ARTrajectory(state_data_dir)
+function Rollouts(state_data_dir)
     selected_action_probabilities = Float32[]
     selected_actions = Int[]
     rewards = Float32[]
@@ -23,16 +23,16 @@ function ARTrajectory(state_data_dir)
     num_samples = 0
     prepare_state_data_directory(state_data_dir)
     
-    ARTrajectory(state_data_dir, selected_action_probabilities, selected_actions, rewards, terminal, num_samples)
+    Rollouts(state_data_dir, selected_action_probabilities, selected_actions, rewards, terminal, num_samples)
 end
 
-function write_state_to_disk(buffer::ARTrajectory, state)
+function write_state_to_disk(buffer::Rollouts, state)
     state_file = "sample_" * string(buffer.num_samples) * ".bson"
     state_file_path = joinpath(buffer.state_data_directory, "states", state_file)
     BSON.@save state_file_path state
 end
 
-function update!(buffer::ARTrajectory, state, action_probability, action, reward, terminal)
+function update!(buffer::Rollouts, state, action_probability, action, reward, terminal)
     @assert 0 <= action_probability <= 1
     @assert terminal isa Bool
 
@@ -44,7 +44,7 @@ function update!(buffer::ARTrajectory, state, action_probability, action, reward
     push!(buffer.terminal, terminal)
 end
 
-function Base.length(buffer::ARTrajectory)
+function Base.length(buffer::Rollouts)
     @assert length(buffer.selected_action_probabilities) ==
             length(buffer.selected_actions) ==
             length(buffer.rewards) ==
@@ -53,7 +53,7 @@ function Base.length(buffer::ARTrajectory)
     return length(buffer.terminal)
 end
 
-function Base.show(io::IO, data::ARTrajectory)
+function Base.show(io::IO, data::Rollouts)
     nd = length(data)
     println(io, "ARTrajectory\n\t$nd data points")
 end
@@ -100,7 +100,7 @@ function compute_returns(rewards, terminal, discount)
     return values
 end
 
-function collect_rollouts!(buffer::ARTrajectory, env, policy, num_episodes, discount)
+function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount)
     for _ in 1:num_episodes
         reset!(env)
         collect_episode_data!(buffer, env, policy)
