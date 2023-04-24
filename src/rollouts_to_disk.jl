@@ -104,6 +104,7 @@ function compute_returns(rewards, terminal, discount)
 end
 
 function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount)
+    println("\n\nCOLLECTING ROLLOUTS :")
     for _ in 1:num_episodes
         reset!(env)
         collect_episode_data!(buffer, env, policy)
