@@ -5,12 +5,12 @@ using BSON
 PPO = ProximalPolicyOptimization
 include("useful_routines.jl")
 
-dir = "/Users/arjun/.julia/dev/ProximalPolicyOptimization/examples/rollout_to_disk/"
+dir = "~/.julia/dev/ProximalPolicyOptimization/examples/rollout_to_disk/"
 file = joinpath(dir, "test.txt")
 cmd = `echo hello '>' $file`
 run(cmd)
 
-trajectory = PPO.ARTrajectory(dir)
+trajectory = PPO.Rollouts(dir)
 @test !isfile(file)
 @test isdir(joinpath(dir, "states"))
 
