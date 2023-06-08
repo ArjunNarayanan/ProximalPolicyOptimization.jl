@@ -164,7 +164,7 @@ function ppo_iterate!(
 
     loss = Dict("ppo" => [], "entropy" => [])
     for iter in 1:num_ppo_iterations
-        evaluator(policy, env)
+        evaluator(policy, env, optimizer)
 
         println("\nPPO ITERATION : $iter")
 
