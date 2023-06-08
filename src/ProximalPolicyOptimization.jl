@@ -7,6 +7,7 @@ using Printf
 using BSON
 using DataFrames
 using CSV
+using Tables
 
 function not_implemented(name)
     error("Function $name needs to be overloaded")

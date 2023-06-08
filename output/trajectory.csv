@@ -1,0 +1,7 @@
+sample_names,selected_actions,selected_action_probabilities,returns
+sample_1.bson,4,0.5,6.0
+sample_2.bson,4,0.5,5.0
+sample_3.bson,4,0.5,4.0
+sample_4.bson,4,0.5,3.0
+sample_5.bson,4,0.5,2.0
+sample_6.bson,4,0.5,1.0

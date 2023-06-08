@@ -1,9 +1,5 @@
 mutable struct Rollouts
     state_data_directory
-    selected_action_probabilities
-    selected_actions
-    rewards
-    terminal
     num_samples
     trajectory_filename
 end
@@ -16,16 +12,36 @@ function prepare_state_data_directory(path)
     mkpath(state_data_path)
 end
 
+function prepare_trajectory_data_file(filename)
+    directory = dirname(filename)
+    @assert isdir(directory)
+    if isfile(filename)
+        rm(filename)
+    end
+end
+
 function Rollouts(state_data_dir)
     selected_action_probabilities = Float32[]
     selected_actions = Int[]
     rewards = Float32[]
     terminal = Bool[]
     num_samples = 0
-    trajectory_filename = "trajectory.csv"
+
     prepare_state_data_directory(state_data_dir)
-    
-    Rollouts(state_data_dir, selected_action_probabilities, selected_actions, rewards, terminal, num_samples, trajectory_filename)
+    trajectory_filename = joinpath(state_data_dir, "trajectory.csv")
+    prepare_trajectory_data_file(trajectory_filename)
+
+    header = [
+        "sample_names",
+        "selected_actions",
+        "selected_action_probabilities",
+        "rewards",
+        "terminal"
+    ]
+    line = Tables.table(reshape(header, 1, :))
+    CSV.write(trajectory_filename, line, header=false)
+
+    Rollouts(state_data_dir, num_samples, trajectory_filename)
 end
 
 function write_state_to_disk(buffer::Rollouts, state)
@@ -34,25 +50,45 @@ function write_state_to_disk(buffer::Rollouts, state)
     BSON.@save state_file_path state
 end
 
+function write_action_history_to_disk(
+    buffer::Rollouts,
+    sample_name,
+    selected_action_probability,
+    selected_action,
+    reward,
+    terminal
+)
+
+    data = [
+        sample_name,
+        selected_action,
+        selected_action_probability,
+        reward,
+        terminal
+    ]
+    line = Tables.table(reshape(data,1,:))
+    CSV.write(buffer.trajectory_filename, line, append=true)
+end
+
 function update!(buffer::Rollouts, state, action_probability, action, reward, terminal)
     @assert 0 <= action_probability <= 1
     @assert terminal isa Bool
 
     buffer.num_samples += 1
+    sample_name = "sample_" * string(buffer.num_samples) * ".bson"
     write_state_to_disk(buffer, state)
-    push!(buffer.selected_action_probabilities, action_probability)
-    push!(buffer.selected_actions, action)
-    push!(buffer.rewards, reward)
-    push!(buffer.terminal, terminal)
+    write_action_history_to_disk(
+        buffer,
+        sample_name,
+        action_probability,
+        action,
+        reward,
+        terminal
+    )
 end
 
 function Base.length(buffer::Rollouts)
-    @assert length(buffer.selected_action_probabilities) ==
-            length(buffer.selected_actions) ==
-            length(buffer.rewards) ==
-            length(buffer.terminal)
-
-    return length(buffer.terminal)
+    return buffer.num_samples
 end
 
 function Base.show(io::IO, data::Rollouts)
@@ -87,7 +123,7 @@ end
 
 function compute_returns(rewards, terminal, discount)
     ne = length(rewards)
-    
+
     T = eltype(rewards)
     values = zeros(T, ne)
     v = zero(T)
@@ -103,7 +139,44 @@ function compute_returns(rewards, terminal, discount)
     return values
 end
 
+function write_returns_to_disk(buffer::Rollouts, discount)
+    column_types = Dict(
+            "selected_actions" => Int,
+            "selected_action_probabilities" => Float32,
+            "rewards" => Float32,
+            "terminal" => Bool
+        )
+    df = CSV.read(buffer.trajectory_filename, DataFrame, types = column_types)
+    cumulative_returns = compute_returns(
+        df[!, "rewards"],
+        df[!, "terminal"],
+        discount
+    )
+    new_df = DataFrame(Dict(
+        "sample_names" => df[!, "sample_names"],
+        "selected_actions" => df[!, "selected_actions"],
+        "selected_action_probabilities" => df[!, "selected_action_probabilities"],
+        "returns" => cumulative_returns
+    ))
+    new_df = new_df[!, [
+        "sample_names", 
+        "selected_actions",
+        "selected_action_probabilities",
+        "returns"
+    ]]
+    CSV.write(buffer.trajectory_filename, new_df)
+end
+
 function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount)
+    println("\n\nCOLLECTING ROLLOUTS :")
+    for _ in 1:num_episodes
+        reset!(env)
+        collect_episode_data!(buffer, env, policy)
+    end
+    write_returns_to_disk(buffer, discount)
+end
+
+function archive_collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount)
     println("\n\nCOLLECTING ROLLOUTS :")
     for _ in 1:num_episodes
         reset!(env)
@@ -111,14 +184,14 @@ function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount
     end
     cumulative_returns = compute_returns(buffer.rewards, buffer.terminal, discount)
     file_names = ["sample_" * string(i) * ".bson" for i in 1:buffer.num_samples]
-    data = Dict("sample_names" => file_names, 
-                "selected_actions" => buffer.selected_actions,
-                "selected_action_probabilities" => buffer.selected_action_probabilities,
-                "returns" => cumulative_returns,
+    data = Dict("sample_names" => file_names,
+        "selected_actions" => buffer.selected_actions,
+        "selected_action_probabilities" => buffer.selected_action_probabilities,
+        "returns" => cumulative_returns,
     )
     df = DataFrame(data)
     df = df[!, ["sample_names", "selected_actions", "selected_action_probabilities", "returns"]]
-    
+
     df_file_path = joinpath(buffer.state_data_directory, buffer.trajectory_filename)
     CSV.write(df_file_path, df)
 end
