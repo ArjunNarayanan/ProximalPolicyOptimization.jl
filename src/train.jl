@@ -40,7 +40,7 @@ function ppo_loss_with_entropy(policy, state, actions, old_action_probabilities,
     ppo_clip = simplified_ppo_clip.(advantage, epsilon)
 
     ppoloss = -Flux.mean(min.(ppo_gain, ppo_clip))
-    entropyloss = smoothed_entropy(current_action_probabilities)
+    entropyloss = -smoothed_entropy(current_action_probabilities)
 
     return ppoloss, entropyloss
 end
@@ -74,7 +74,7 @@ function step_batch!(
             epsilon
         )
         entropyloss = entropyloss * entropy_weight
-        loss = ppoloss - entropyloss
+        loss = ppoloss + entropyloss
         return loss
     end
 
