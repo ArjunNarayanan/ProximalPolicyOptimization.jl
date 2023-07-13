@@ -138,13 +138,22 @@ function ppo_train!(
 )
     ppo_loss_history = []
     entropy_loss_history = []
+    lr_history = []
     for epoch = 1:num_epochs
         ppoloss, entropyloss = step_epoch!(policy, optimizer, dataset, epsilon, batch_size, entropy_weight)
         @printf "EPOCH : %d \t PPO LOSS : %1.4f\t ENTROPY LOSS : %1.4f\n" epoch ppoloss entropyloss
+
+        lr = get_optimizer_learning_rate(optimizer)
         push!(ppo_loss_history, ppoloss)
         push!(entropy_loss_history, entropyloss)
+        push!(lr_history, lr)
     end
-    return ppo_loss_history, entropy_loss_history
+    return ppo_loss_history, entropy_loss_history, lr_history
+end
+
+function get_optimizer_learning_rate(optimizer)
+    lr = prod((opt.eta for opt in optimizer))
+    return lr
 end
 
 function ppo_iterate!(
@@ -162,7 +171,7 @@ function ppo_iterate!(
     state_data_path
 )
 
-    loss = Dict("ppo" => [], "entropy" => [])
+    loss = Dict("ppo" => [], "entropy" => [], "lr" => [])
     for iter in 1:num_ppo_iterations
         evaluator(policy, env, optimizer)
 
@@ -173,9 +182,10 @@ function ppo_iterate!(
 
         dataset = Dataset(rollouts.state_data_directory)
 
-        ppoloss, entropyloss = ppo_train!(policy, optimizer, dataset, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
+        ppoloss, entropyloss, lr_history = ppo_train!(policy, optimizer, dataset, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
         append!(loss["ppo"], ppoloss)
         append!(loss["entropy"], entropyloss)
+        append!(loss["lr"], lr_history)
 
         save_loss(evaluator, loss)
     end
