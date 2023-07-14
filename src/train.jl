@@ -141,9 +141,10 @@ function ppo_train!(
     lr_history = []
     for epoch = 1:num_epochs
         ppoloss, entropyloss = step_epoch!(policy, optimizer, dataset, epsilon, batch_size, entropy_weight)
-        @printf "EPOCH : %d \t PPO LOSS : %1.4f\t ENTROPY LOSS : %1.4f\n" epoch ppoloss entropyloss
-
         lr = get_optimizer_learning_rate(optimizer)
+
+        @printf "EPOCH : %d \t PPO LOSS : %1.4f\t ENTROPY LOSS : %1.4f \t LR : %1.4f\n" epoch ppoloss entropyloss lr
+
         push!(ppo_loss_history, ppoloss)
         push!(entropy_loss_history, entropyloss)
         push!(lr_history, lr)
