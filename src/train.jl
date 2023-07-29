@@ -157,6 +157,10 @@ function get_optimizer_learning_rate(optimizer)
     return lr
 end
 
+
+##############################################################################
+# This method writes rollout data to disk and loads them for training
+# Use if the rollouts are larger than system memory
 function ppo_iterate!(
     policy,
     env,
@@ -178,10 +182,11 @@ function ppo_iterate!(
 
         println("\nPPO ITERATION : $iter")
 
-        rollouts = Rollouts(state_data_path)
+        rollouts = DiskRollouts(state_data_path)
         collect_rollouts!(rollouts, env, policy, episodes_per_iteration, discount)
 
-        dataset = Dataset(rollouts.state_data_directory)
+        # dataset = DiskDataset(rollouts.state_data_directory)
+        dataset = construct_dataset(rollouts)
 
         ppoloss, entropyloss, lr_history = ppo_train!(policy, optimizer, dataset, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
         append!(loss["ppo"], ppoloss)
@@ -195,3 +200,55 @@ function ppo_iterate!(
         rm(state_data_path, recursive=true)
     end
 end
+##############################################################################
+
+
+
+##############################################################################
+# This method saves rollouts to a buffer, use if size of rollouts 
+# fits in system memory
+function ppo_iterate!(
+    policy,
+    env,
+    optimizer,
+    episodes_per_iteration,
+    minibatch_size,
+    num_ppo_iterations,
+    evaluator,
+    epochs_per_iteration,
+    discount,
+    epsilon,
+    entropy_weight,
+)
+
+    loss = Dict("ppo" => [], "entropy" => [], "lr" => [])
+    for iter in 1:num_ppo_iterations
+        evaluator(policy, env, optimizer)
+
+        println("\nPPO ITERATION : $iter")
+
+        rollouts = BufferRollouts()
+        collect_rollouts!(
+            rollouts, 
+            env, 
+            policy, 
+            episodes_per_iteration, 
+            discount
+        )
+
+        # dataset = DiskDataset(rollouts.state_data_directory)
+        dataset = construct_dataset(rollouts)
+
+        ppoloss, entropyloss, lr_history = ppo_train!(policy, optimizer, dataset, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
+        append!(loss["ppo"], ppoloss)
+        append!(loss["entropy"], entropyloss)
+        append!(loss["lr"], lr_history)
+
+        save_loss(evaluator, loss)
+    end
+    if isdir(state_data_path)
+        println("\n\nCLEARING DATA IN ROLLOUTS FOLDER :")
+        rm(state_data_path, recursive=true)
+    end
+end
+##############################################################################

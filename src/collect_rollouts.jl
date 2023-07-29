@@ -40,28 +40,3 @@ function compute_returns(rewards, terminal, discount)
 
     return values
 end
-
-function compute_state_value!(rollouts, discount)
-    rollouts.rewards .= compute_returns(rollouts.rewards, rollouts.terminal, discount)
-end
-
-function collect_rollouts!(rollouts, env, policy, num_episodes)
-    for _ in 1:num_episodes
-        reset!(env)
-        collect_episode_data!(rollouts, env, policy)
-    end
-end
-
-function permute!(rollouts, idx)
-    @assert length(idx) == length(rollouts)
-    rollouts.state_data .= rollouts.state_data[idx]
-    rollouts.selected_action_probabilities .= rollouts.selected_action_probabilities[idx]
-    rollouts.selected_actions .= rollouts.selected_actions[idx]
-    rollouts.rewards .= rollouts.rewards[idx]
-    rollouts.terminal .= rollouts.terminal[idx]
-end
-
-function shuffle!(rollouts)
-    idx = shuffle(1:length(rollouts))
-    permute!(rollouts, idx)
-end

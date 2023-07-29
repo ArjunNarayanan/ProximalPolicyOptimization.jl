@@ -1,4 +1,4 @@
-mutable struct Rollouts
+mutable struct DiskRollouts
     state_data_directory
     num_samples
     trajectory_filename
@@ -20,7 +20,7 @@ function prepare_trajectory_data_file(filename)
     end
 end
 
-function Rollouts(state_data_dir)
+function DiskRollouts(state_data_dir)
     selected_action_probabilities = Float32[]
     selected_actions = Int[]
     rewards = Float32[]
@@ -41,17 +41,17 @@ function Rollouts(state_data_dir)
     line = Tables.table(reshape(header, 1, :))
     CSV.write(trajectory_filename, line, header=false)
 
-    Rollouts(state_data_dir, num_samples, trajectory_filename)
+    DiskRollouts(state_data_dir, num_samples, trajectory_filename)
 end
 
-function write_state_to_disk(buffer::Rollouts, state)
+function write_state_to_disk(buffer::DiskRollouts, state)
     state_file = "sample_" * string(buffer.num_samples) * ".bson"
     state_file_path = joinpath(buffer.state_data_directory, "states", state_file)
     BSON.@save state_file_path state
 end
 
 function write_action_history_to_disk(
-    buffer::Rollouts,
+    buffer::DiskRollouts,
     sample_name,
     selected_action_probability,
     selected_action,
@@ -70,7 +70,14 @@ function write_action_history_to_disk(
     CSV.write(buffer.trajectory_filename, line, append=true)
 end
 
-function update!(buffer::Rollouts, state, action_probability, action, reward, terminal)
+function update!(
+    buffer::DiskRollouts, 
+    state, 
+    action_probability, 
+    action, 
+    reward, 
+    terminal
+)
     @assert 0 <= action_probability <= 1
     @assert terminal isa Bool
 
@@ -87,59 +94,16 @@ function update!(buffer::Rollouts, state, action_probability, action, reward, te
     )
 end
 
-function Base.length(buffer::Rollouts)
+function Base.length(buffer::DiskRollouts)
     return buffer.num_samples
 end
 
-function Base.show(io::IO, data::Rollouts)
+function Base.show(io::IO, data::DiskRollouts)
     nd = length(data)
     println(io, "Rollouts\n\t$nd data points")
 end
 
-function collect_step_data!(buffer, env, policy)
-    cpu_state = state(env)
-    gpu_state = cpu_state |> gpu
-
-    ap = action_probabilities(policy, gpu_state) |> cpu
-    a = rand(Categorical(ap))
-    @assert ap[a] > 0.0
-
-    step!(env, a)
-
-    r = reward(env)
-    t = is_terminal(env)
-
-    update!(buffer, cpu_state, ap[a], a, r, t)
-end
-
-function collect_episode_data!(buffer, env, policy)
-    terminal = is_terminal(env)
-
-    while !terminal
-        collect_step_data!(buffer, env, policy)
-        terminal = is_terminal(env)
-    end
-end
-
-function compute_returns(rewards, terminal, discount)
-    ne = length(rewards)
-
-    T = eltype(rewards)
-    values = zeros(T, ne)
-    v = zero(T)
-
-    for idx = ne:-1:1
-        if terminal[idx]
-            v = zero(T)
-        end
-        v = rewards[idx] + discount * v
-        values[idx] = v
-    end
-
-    return values
-end
-
-function write_returns_to_disk(buffer::Rollouts, discount)
+function write_returns_to_disk(buffer::DiskRollouts, discount)
     column_types = Dict(
             "selected_actions" => Int,
             "selected_action_probabilities" => Float32,
@@ -167,7 +131,13 @@ function write_returns_to_disk(buffer::Rollouts, discount)
     CSV.write(buffer.trajectory_filename, new_df)
 end
 
-function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount)
+function collect_rollouts!(
+    buffer::DiskRollouts, 
+    env, 
+    policy, 
+    num_episodes, 
+    discount
+)
     println("\n\nCOLLECTING ROLLOUTS :")
     for _ in 1:num_episodes
         reset!(env)
@@ -176,7 +146,7 @@ function collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount
     write_returns_to_disk(buffer, discount)
 end
 
-function archive_collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, discount)
+function archive_collect_rollouts!(buffer::DiskRollouts, env, policy, num_episodes, discount)
     println("\n\nCOLLECTING ROLLOUTS :")
     for _ in 1:num_episodes
         reset!(env)
@@ -195,3 +165,51 @@ function archive_collect_rollouts!(buffer::Rollouts, env, policy, num_episodes, 
     df_file_path = joinpath(buffer.state_data_directory, buffer.trajectory_filename)
     CSV.write(df_file_path, df)
 end
+
+function construct_dataset(rollouts::DiskRollouts)
+    return DiskDataset(rollouts.state_data_directory)
+end
+
+
+# function collect_step_data!(buffer, env, policy)
+#     cpu_state = state(env)
+#     gpu_state = cpu_state |> gpu
+
+#     ap = action_probabilities(policy, gpu_state) |> cpu
+#     a = rand(Categorical(ap))
+#     @assert ap[a] > 0.0
+
+#     step!(env, a)
+
+#     r = reward(env)
+#     t = is_terminal(env)
+
+#     update!(buffer, cpu_state, ap[a], a, r, t)
+# end
+
+# function collect_episode_data!(buffer, env, policy)
+#     terminal = is_terminal(env)
+
+#     while !terminal
+#         collect_step_data!(buffer, env, policy)
+#         terminal = is_terminal(env)
+#     end
+# end
+
+# function compute_returns(rewards, terminal, discount)
+#     ne = length(rewards)
+
+#     T = eltype(rewards)
+#     values = zeros(T, ne)
+#     v = zero(T)
+
+#     for idx = ne:-1:1
+#         if terminal[idx]
+#             v = zero(T)
+#         end
+#         v = rewards[idx] + discount * v
+#         values[idx] = v
+#     end
+
+#     return values
+# end

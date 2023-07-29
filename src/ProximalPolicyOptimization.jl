@@ -30,8 +30,9 @@ function batch_advantage(state, value) not_implemented("batch_advantage") end
 function save_loss(evaluator, loss) not_implemented("save_loss") end
 
 
-# include("rollouts.jl")
+include("rollout_buffer.jl")
 include("rollouts_to_disk.jl")
+include("collect_rollouts.jl")
 include("dataset.jl")
 include("train.jl")
 include("evaluate.jl")

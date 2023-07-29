@@ -1,8 +1,8 @@
-struct Dataset
+struct DiskDataset
     root_directory
     trajectory_df
     states_directory
-    function Dataset(root_directory, trajectory_filename="trajectory.csv", states_dirname="states")
+    function DiskDataset(root_directory, trajectory_filename="trajectory.csv", states_dirname="states")
         trajectory_filepath = joinpath(root_directory, trajectory_filename)
         @assert isfile(trajectory_filepath)
 
@@ -19,16 +19,16 @@ struct Dataset
     end
 end
 
-function Base.show(io::IO, dataset::Dataset)
+function Base.show(io::IO, dataset::DiskDataset)
     num_samples = length(dataset)
     println(io, "Dataset\n\t$num_samples data points")
 end
 
-function Base.length(dataset::Dataset)
+function Base.length(dataset::DiskDataset)
     return size(dataset.trajectory_df, 1)
 end
 
-function load_sample(dataset::Dataset, idx)
+function load_sample(dataset::DiskDataset, idx)
     @assert idx isa Int
     @assert 1 <= idx <= size(dataset.trajectory_df, 1)
 
@@ -51,7 +51,7 @@ function load_sample(dataset::Dataset, idx)
     return sample
 end
 
-function load_batch(dataset::Dataset, indices)
+function load_batch(dataset::DiskDataset, indices)
     @assert indices isa AbstractArray
     samples = [dataset[idx] for idx in indices]
 
@@ -71,7 +71,7 @@ function load_batch(dataset::Dataset, indices)
     return batched_sample
 end
 
-function Base.getindex(dataset::Dataset, idx)
+function Base.getindex(dataset::DiskDataset, idx)
     if idx isa Int
         return load_sample(dataset, idx)
     elseif idx isa AbstractArray
