@@ -246,9 +246,5 @@ function ppo_iterate!(
 
         save_loss(evaluator, loss)
     end
-    if isdir(state_data_path)
-        println("\n\nCLEARING DATA IN ROLLOUTS FOLDER :")
-        rm(state_data_path, recursive=true)
-    end
 end
 ##############################################################################
