@@ -1,7 +1,7 @@
 function collect_step_data!(buffer, env, policy)
     cpu_state = state(env)
     
-    println("Using CPU state")
+    # println("Using CPU state")
 
     ap = action_probabilities(policy, cpu_state)
     a = rand(Categorical(ap))
