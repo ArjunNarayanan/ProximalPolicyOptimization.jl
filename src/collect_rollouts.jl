@@ -1,8 +1,7 @@
 function collect_step_data!(buffer, env, policy)
     cpu_state = state(env)
-    gpu_state = cpu_state |> gpu
 
-    ap = action_probabilities(policy, gpu_state) |> cpu
+    ap = action_probabilities(policy, cpu_state)
     a = rand(Categorical(ap))
     @assert ap[a] > 0.0
 

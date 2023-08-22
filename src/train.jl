@@ -228,6 +228,8 @@ function ppo_iterate!(
         println("\nPPO ITERATION : $iter")
 
         rollouts = BufferRollouts()
+        
+        policy = cpu(policy)
         collect_rollouts!(
             rollouts, 
             env, 
@@ -239,6 +241,7 @@ function ppo_iterate!(
         # dataset = DiskDataset(rollouts.state_data_directory)
         dataset = construct_dataset(rollouts)
 
+        policy = gpu(policy)
         ppoloss, entropyloss, lr_history = ppo_train!(policy, optimizer, dataset, epsilon, minibatch_size, epochs_per_iteration, entropy_weight)
         append!(loss["ppo"], ppoloss)
         append!(loss["entropy"], entropyloss)
